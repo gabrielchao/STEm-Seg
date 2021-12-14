@@ -344,8 +344,8 @@ def start(args, cfg):
 
 
 def init_distributed(args, cfg, num_gpus):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = args.master_port if args.master_port else '12356'
+    # os.environ['MASTER_ADDR'] = '127.0.0.1'
+    # os.environ['MASTER_PORT'] = args.master_port if args.master_port else dist_utils.find_free_port()
 
     # initialize the process group
     timeout = timedelta(0, 25)  # 25 seconds
@@ -391,7 +391,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--allow_multigpu', action='store_true')
     parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument('--master_port', type=str, default='12356')
+    parser.add_argument('--master_port', type=str)
 
     parser.add_argument('--display_interval', type=int, default=5)
     parser.add_argument('--summary_interval', type=int, default=10)
