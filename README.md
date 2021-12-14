@@ -1,5 +1,5 @@
 # STEm-Seg
-This repository contains the official inference and training implementation for the paper:
+This repository contains the inference and training implementation for the paper:
 
 **STEm-Seg: Spatio-temporal Embeddings for Instance Segmentation in Videos**
 
@@ -158,6 +158,12 @@ Here as well, the final inference was done on 8 frame clips, but we trained in t
   ```bash
   python -m torch.distributed.launch --nproc_per_node=<num_gpus> stemseg/training/main.py --model_dir some_dir_name --cfg <dataset_config.yaml> --allow_multigpu
   ```
+* To control which GPU(s) to utilize, set the `CUDA_VISIBLE_DEVICES` environmental variable before running. For example:
+  
+  ```bash
+  CUDA_VISIBLE_DEVICES=2,3 python stemseg/training/main.py --model_dir some_dir_name --cfg davis_1.yaml
+  ```
+  This causes GPU 2 to be designated `cuda:0` and GPU 3 to be `cuda:1`.
 
 * You can visualize the training progress using tensorboard by pointing it to the `logs` sub-directory in the training directory. 
 
