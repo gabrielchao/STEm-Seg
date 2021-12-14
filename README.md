@@ -158,6 +158,8 @@ Here as well, the final inference was done on 8 frame clips, but we trained in t
   ```bash
   python -m torch.distributed.launch --nproc_per_node=<num_gpus> stemseg/training/main.py --model_dir some_dir_name --cfg <dataset_config.yaml> --allow_multigpu
   ```
+  The displayed ETA may not be completely accurate (might not account for work done by multiple GPUs), but it should decrease in proportion to the actual work done.
+  
 * To control which GPU(s) to utilize, set the `CUDA_VISIBLE_DEVICES` environmental variable before running. For example:
   
   ```bash
