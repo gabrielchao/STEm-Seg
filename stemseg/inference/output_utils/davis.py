@@ -12,6 +12,9 @@ import torch.nn.functional as F
 
 
 def compute_pixel_box_area_ratio(mask):
+    """
+    Returns (pixel area / bounding box area) for the given mask.
+    """
     y_coords, x_coords = mask.nonzero().unbind(1)
     if y_coords.numel() == 0:
         return 0.0
@@ -39,9 +42,11 @@ class DavisOutputGenerator(object):
                          category_masks, mask_dims, mask_scale, max_tracks, device="cpu"):
         """
         Given a list of mask indices per frame, creates a sequence of masks for the entire sequence.
+        :param sequence: instance of GenericVideoSequence
         :param track_mask_idxes: list(tuple(tensor, tensor))
         :param track_mask_labels: list(tensor)
         :param instance_pt_counts: dict(int -> int)
+        :param instance_lifetimes: 
         :param category_masks: irrelevant
         :param mask_dims: tuple(int, int) (height, width)
         :param mask_scale: int
@@ -55,6 +60,7 @@ class DavisOutputGenerator(object):
         assert len(track_mask_idxes) == len(track_mask_labels)
         assert max_tracks < 256
 
+        # filter out small/unstable instances
         instances_to_keep = [
                                 instance_id for instance_id, _ in sorted(
                 [(k, v) for k, v in instance_lifetimes.items()], key=lambda x: x[1], reverse=True
