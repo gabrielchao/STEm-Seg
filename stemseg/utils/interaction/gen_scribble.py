@@ -5,8 +5,9 @@ Adapted from https://github.com/hkchengrex/Scribble-to-Mask/blob/6733c3ea2ef26a9
 import numpy as np
 import cv2
 import bezier
-from stemseg.utils.interactive.tamed_robot import TamedRobot
-from stemseg.utils.interactive.mask_perturb import random_erode
+
+from stemseg.utils.interaction.tamed_robot import TamedRobot
+from stemseg.utils.interaction.mask_perturb import random_erode
 
 
 def disk_kernel(size):
