@@ -89,6 +89,14 @@ def get_thinned_scribble(region):
 
 robot = TamedRobot()
 def get_scribble(mask, gt, from_zero):
+    """
+    Computes positive and negative scribbles for the given mask and ground truth
+    using a random selection of methods.
+    :param mask: ndarray
+    :param gt: ndarray
+    :param from_zero: boolean
+    :return: tuple(ndarray(uint8), ndarray(uint8)) (positive, negative)
+    """
     mask = mask > 128
     gt = gt > 128
 
