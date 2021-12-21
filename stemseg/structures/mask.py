@@ -101,6 +101,7 @@ class BinaryMask(object):
 
 
 class BinaryMaskSequenceList(object):
+    """Class containing masks for each instance in a sequence."""
     def __init__(self, mask_sequence_list):
         self._mask_sequence_list = mask_sequence_list
 

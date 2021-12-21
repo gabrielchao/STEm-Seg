@@ -5,7 +5,9 @@ Adapted from https://github.com/hkchengrex/Scribble-to-Mask/blob/6733c3ea2ef26a9
 import numpy as np
 import cv2
 import bezier
+from davisinteractive.metrics import batched_jaccard
 
+from stemseg.structures.mask import BinaryMask, BinaryMaskSequenceList
 from stemseg.utils.interaction.tamed_robot import TamedRobot
 from stemseg.utils.interaction.mask_perturb import random_erode
 
@@ -94,7 +96,7 @@ def get_scribble(mask, gt, from_zero):
     using a random selection of methods.
     :param mask: ndarray
     :param gt: ndarray
-    :param from_zero: boolean
+    :param from_zero: bool
     :return: tuple(ndarray(uint8), ndarray(uint8)) (positive, negative)
     """
     mask = mask > 128
@@ -170,7 +172,23 @@ def get_scribble(mask, gt, from_zero):
 
         return scribbles[0].astype(np.uint8), scribbles[1].astype(np.uint8)
 
+def update_scribble_tube(mask_seq: BinaryMaskSequenceList, gt_seq: BinaryMaskSequenceList, pos_seq: BinaryMaskSequenceList, neg_seq: BinaryMaskSequenceList):
+    """
+    Updates the positive and negative scribble tubes for the given predicted mask and ground truth
+    tubes with new scribbles using a random selection of methods. The updated positive and negative scribble 
+    tubes will be a proper superset of the given.
 
+    # Arguments
+        mask_seq: Tensor. Predicted mask tube. Blank masks if there is no previous prediction.
+        gt_seq: Tensor. Ground truth mask tube.
+        pos_seq: Tensor. Previous positive scribble tube. Blank masks if there are no previous scribbles.
+        neg_seq: Tensor. Previous negative scribble tube. Blank masks if there are no previous scribbles.
+        from_zero: bool. True if this is the first interaction (no previous interactions), false otherwise.
+    """
+    predictions = mask_seq.tensor(format='NT')
+    annotations = mask_seq.tensor(format='NT')
+    
+    
 if __name__ == '__main__':
     import sys
     mask = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
