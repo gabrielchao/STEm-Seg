@@ -188,6 +188,9 @@ def update_scribble_tube(mask_seq: BinaryMaskSequenceList, gt_seq: BinaryMaskSeq
     predictions = mask_seq.tensor(format='NT')
     annotations = mask_seq.tensor(format='NT')
     
+    # TODO: use gen_scribble() to update interactions
+
+    return pos_seq, neg_seq
     
 if __name__ == '__main__':
     import sys

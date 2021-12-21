@@ -4,11 +4,12 @@ from stemseg.config import cfg
 
 from stemseg.data import InferenceImageLoader
 from stemseg.data.inference_image_loader import collate_fn
-from stemseg.inference.online_chainer import OnlineChainer
+from stemseg.inference.online_chainer import OnlineChainer, masks_to_coord_list
 from stemseg.inference.clusterers import SequentialClustering
 from stemseg.modeling.embedding_utils import get_nb_free_dims
 from stemseg.modeling.model_builder import build_model
 from stemseg.structures.image_list import ImageList
+from stemseg.structures.mask import BinaryMaskSequenceList
 from stemseg.utils.constants import ModelOutput
 from stemseg.utils.timer import Timer
 
@@ -203,16 +204,25 @@ class InteractiveModel(nn.Module):
         self._model = build_model(restore_pretrained_backbone_wts=True, logger=None)
         self.chainer = OnlineChainer(self.create_clusterer(), embedding_resize_factor=resize_scale)
 
-    def forward(self, image_seqs: ImageList, targets: list):
+    def forward(self, image_seqs: ImageList, interaction_seqs: list(BinaryMaskSequenceList), targets: list):
         """
         Do a forward pass on a batch of sequences of images and targets.
         :param image_seqs: ImageList
+        :param interaction_seqs: list(BinaryMaskSequenceList)
         :param targets: List (length N) of dicts, each containing a 'masks' field containing a tensor of
         shape (I (instances), T, H, W)
+        :return dict()
         """
         
+        # TODO: pass in interactions
         output = self._model.forward(image_seqs, targets)
+
+        # TODO: process embedding ouputs into mask tubes using TrackGenerator/OnlineChainer/SequentialClustering
+
         fg_masks = self.get_fg_masks_from_seediness(output[ModelOutput.INFERENCE][ModelOutput.EMBEDDINGS])
+        
+        output[ModelOutput.INFERENCE][ModelOutput.MASKS] = masks
+        return output
         
 
     def create_clusterer(self):

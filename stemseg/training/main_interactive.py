@@ -47,6 +47,7 @@ class Trainer(object):
         if self.is_main_process:
             os.makedirs(self.log_dir, exist_ok=True)
 
+        # TODO: switch to InteractiveModel
         self.model = build_model(restore_pretrained_backbone_wts=True, logger=self.console_logger).to(self.local_device)
 
         # create optimizer
@@ -187,9 +188,15 @@ class Trainer(object):
         sub_iter_idx = 0
 
         for image_seqs, targets, meta_info in data_loader:
+
+            # TODO: implement round-based interaction training as in 
+            # Fast User-Guided Video Object Segmentation by Interaction-and-Propagation Networks https://arxiv.org/abs/1904.09791
             
+            # TODO: pass in scribbles (blank if first round)
             model_output = self.model(
                 image_seqs.to(device=self.local_device), tensor_struct_to(targets, device=self.local_device))
+
+            # TODO: get new interactions with update_scribble_tube()
 
             dist_utils.synchronize()
             if self.interrupt_detector.is_interrupted:
