@@ -243,8 +243,26 @@ class TrainingModel(nn.Module):
 
         output_dict[ModelOutput.OPTIMIZATION_LOSSES][LossConsts.FOREGROUND] = loss / len(targets)
 
+    def split_embeddings(self, embedding_map):
+        """
+        Splits a consolidated embedding map into separate embedding, bandwitdth, and seediness maps.
+        :param embedding_map: Tensor of shape [N, C, T, H, W] (C = embedding dims + variance dims + seediness dims)
+        :return (embedding_map, bandwidth_map, seediness_map) each of shape [N, T, H, W, x] where x is the respective dim
+        """
+        assert embedding_map.shape[1] == self.embedding_loss_criterion.num_input_channels, "Expected {} channels in input tensor, got {}".format(
+            self.embedding_loss_criterion.num_input_channels, embedding_map.shape[1])
 
-def build_model(restore_pretrained_backbone_wts=False, logger=None):
+        embedding_map = embedding_map.permute(0, 2, 3, 4, 1)  # [N, T, H, W, C]
+
+        embedding_map, bandwidth_map, seediness_map = embedding_map.split(self.embedding_loss_criterion.split_sizes, dim=-1)
+        assert bandwidth_map.shape[-1] + self.embedding_loss_criterion.n_free_dims == embedding_map.shape[-1], \
+            "Number of predicted bandwidth dims {} + number of free dims {} should equal number of total embedding " \
+            "dims {}".format(bandwidth_map.shape[-1], self.embedding_loss_criterion.n_free_dims, embedding_map.shape[-1])
+
+        return embedding_map, bandwidth_map, seediness_map
+
+
+def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
     print_fn = logger.info if logger is not None else print
 
     # manually seed the random number generator so that all weights get initialized to the same values when using

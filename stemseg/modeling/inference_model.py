@@ -66,6 +66,13 @@ class InferenceModel(nn.Module):
         Initialize a new sequence of images (arbitrary length)
         :param image_paths: list of file paths to the images
         :param subseq_idxes: list of tuples containing frame indices of the sub-sequences
+        :return dict('fg_masks' -> tensor(T, C, H, W), 
+                     'multiclass_masks' -> tensor(T, C, H, W), 
+                     'embeddings' -> list(namedtuple(
+                         'subseq_frames' -> list(int), 
+                         'embeddings' -> tensor, 
+                         'bandwidths' -> tensor, 
+                         'seediness' -> tensor)))
         """
 
         # create an image loader
@@ -120,11 +127,11 @@ class InferenceModel(nn.Module):
 
             if self.has_semseg_head:
                 semseg_input_features = [stacked_features[scale] for scale in self._model.semseg_feature_map_scale]
-                subseq_semseg_logits = self._model.semseg_head(semseg_input_features)
-                subseq_semseg_logits = self.resize_output(subseq_semseg_logits).permute(2, 0, 1, 3, 4).cpu()
+                subseq_semseg_logits = self._model.semseg_head(semseg_input_features)  # [N, C, T, H, W]
+                subseq_semseg_logits = self.resize_output(subseq_semseg_logits).permute(2, 0, 1, 3, 4).cpu()  # [T, N, C, H, W]
 
                 for i, t in enumerate(current_subseq_as_list):
-                    semseg_logits[t][0] += subseq_semseg_logits[i]
+                    semseg_logits[t][0] += subseq_semseg_logits[i] # [N, C, H, W]
                     semseg_logits[t][1] += 1
 
             embedding_input_features = [stacked_features[scale] for scale in self._model.embedding_head_feature_map_scale]

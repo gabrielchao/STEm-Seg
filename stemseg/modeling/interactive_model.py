@@ -7,6 +7,7 @@ from stemseg.data.inference_image_loader import collate_fn
 from stemseg.inference.online_chainer import OnlineChainer, masks_to_coord_list
 from stemseg.inference.clusterers import SequentialClustering
 from stemseg.modeling.embedding_utils import get_nb_free_dims
+from stemseg.modeling.inference_model import InferenceModel
 from stemseg.modeling.model_builder import build_model
 from stemseg.structures.image_list import ImageList
 from stemseg.structures.mask import BinaryMaskSequenceList
@@ -40,8 +41,6 @@ class InteractiveTrackGenerator(object):
                                     resize_scale=resize_scale, semseg_generation_on_gpu=semseg_averaging_on_gpu).cuda()
 
         self.resize_scale = resize_scale
-        self.vis_output_dir = os.path.join(output_dir, "vis")
-        self.embeddings_output_dir = os.path.join(output_dir, "embeddings")
         self.max_tracks = max_tracks
 
         self.save_vis = kwargs.get("save_vis", False)
@@ -201,38 +200,135 @@ def configure_input_dims(args):
 
 class InteractiveModel(nn.Module):
     def __init__(self):
-        self._model = build_model(restore_pretrained_backbone_wts=True, logger=None)
+        self.model = build_model(restore_pretrained_backbone_wts=False)
         self.chainer = OnlineChainer(self.create_clusterer(), embedding_resize_factor=resize_scale)
+        
+        self.EmbeddingMapEntry = namedtuple(
+            "EmbeddingMapEntry", ["subseq_frames", "embeddings", "bandwidths", "seediness"])
 
-    def forward(self, image_seqs: ImageList, interaction_seqs: list(BinaryMaskSequenceList), targets: list):
+
+    def model_forward(self, image_seqs: ImageList, interaction_seqs: list(BinaryMaskSequenceList), targets: list) -> list:
         """
-        Do a forward pass on a batch of sequences of images and targets.
+        Do a forward pass on a N-length batch of sequences of images and targets. Returns a list containing N dicts, each
+        representing a sequence. Each dict is the same data type as that output by InferenceModel.
         :param image_seqs: ImageList
         :param interaction_seqs: list(BinaryMaskSequenceList)
         :param targets: List (length N) of dicts, each containing a 'masks' field containing a tensor of
         shape (I (instances), T, H, W)
-        :return dict()
+        :return list(dict('fg_masks' -> tensor(T, C, H, W), 
+                     'multiclass_masks' -> tensor(T, C, H, W), 
+                     'embeddings' -> list(namedtuple(
+                         'subseq_frames' -> list(int), 
+                         'embeddings' -> tensor, 
+                         'bandwidths' -> tensor, 
+                         'seediness' -> tensor))))
+        """
+        # TODO: pass in interactions
+        output = self.model(image_seqs, targets)
+        all_embeddings = output[ModelOutput.INFERENCE][ModelOutput.EMBEDDINGS]
+        all_semsegs = output[ModelOutput.INFERENCE][ModelOutput.SEMSEG_MASKS]
+
+        embeddings, bandwidths, seediness = self.model.split_embeddings(all_embeddings)
+        frames = list(range(image_seqs.num_frames))
+
+        # Split batch into individual sequences
+        sequences = []
+        split_e, split_b, split_s = torch.split(embeddings, 1), torch.split(bandwidths, 1), torch.split(seediness, 1)
+        split_sem = torch.split(all_semsegs, 1)
+        for e, b, s, sem in zip(split_e, split_b, split_s, split_sem):
+            # Compute fg_masks and multiclass_masks from semseg logits for this sequence         
+            # Make list of semseg logits with dummy counts of 1 count each so we can reuse get_semseg_masks()
+            # sem: [T, C, H, W]
+            semseg_logits = [[0., 0] for _ in range(image_seqs.num_frames)]
+            for t, sem_frame in enumerate(sem):
+                # sem_frame: [C, H, W]
+                semseg_logits[t][0] += sem_frame.unsqueeze(0) # [1, C, H, W]
+                semseg_logits[t][1] += 1
+                assert semseg_logits[t][1] == 1
+            fg_masks, multiclass_masks = self.get_semseg_masks(semseg_logits)
+            
+            # Finally, create dict for this sequence
+            sequences.append({
+                "fg_masks": fg_masks,
+                "multiclass_masks": multiclass_masks,
+                "embeddings": self.EmbeddingMapEntry(frames, e, b, s)
+            })
+        
+        # Finished emulating InferenceModel behaviour - each element in sequences is the
+        # same data type as InferenceModel output.
+        return sequences
+    
+
+    def cluster_sequence(self, all_embeddings, fg_masks, multiclass_masks):
+        pass
+
+
+    def forward(self, image_seqs: ImageList, interaction_seqs: list(BinaryMaskSequenceList), targets: list):
+        """
+        Do a forward pass on a N-length batch of sequences of images and targets.
+        :param image_seqs: ImageList
+        :param interaction_seqs: list(BinaryMaskSequenceList)
+        :param targets: List (length N) of dicts, each containing a 'masks' field containing a tensor of
+        shape (I (instances), T, H, W)
+        :return
         """
         
-        # TODO: pass in interactions
-        output = self._model.forward(image_seqs, targets)
+        sequences = self.model_forward(image_seqs, interaction_seqs, targets)
 
-        # TODO: process embedding ouputs into mask tubes using TrackGenerator/OnlineChainer/SequentialClustering
+        for output in sequences:
+            fg_masks, multiclass_masks = output['fg_masks'], output['multiclass_masks']
+            if torch.is_tensor(fg_masks):
+                print("Obtaining foreground mask from model's foreground mask output")
+                fg_masks = (fg_masks > 0.5).byte()  # [T, H, W]
+            else:
+                print("Obtaining foreground mask by thresholding seediness map at {}".format(self.seediness_fg_threshold))
+                fg_masks = self.get_fg_masks_from_seediness(output)
 
-        fg_masks = self.get_fg_masks_from_seediness(output[ModelOutput.INFERENCE][ModelOutput.EMBEDDINGS])
+            # TODO: process embedding ouputs into mask tubes using TrackGenerator/OnlineChainer/SequentialClustering
+
+            
         
         output[ModelOutput.INFERENCE][ModelOutput.MASKS] = masks
         return output
-        
+    
 
-    def create_clusterer(self):
-        _cfg = cfg.CLUSTERING
-        return SequentialClustering(primary_prob_thresh=_cfg.PRIMARY_PROB_THRESHOLD,
-                                    secondary_prob_thresh=_cfg.SECONDARY_PROB_THRESHOLD,
-                                    min_seediness_prob=_cfg.MIN_SEEDINESS_PROB,
-                                    n_free_dims=get_nb_free_dims(cfg.MODEL.EMBEDDING_DIM_MODE),
-                                    free_dim_stds=cfg.TRAINING.LOSSES.EMBEDDING.FREE_DIM_STDS,
-                                    device=self.clustering_device)
+    @torch.no_grad()
+    def get_semseg_masks(self, semseg_logits):
+        """
+        :param semseg_logits: list(tuple(tensor, int))
+        :return: tensor(T, C, H, W) or tensor(T, H, W)
+        """
+        fg_masks, multiclass_masks = [], []
+        if self._model.semseg_head is None:
+            return fg_masks, multiclass_masks
+
+        device = "cuda:0" if self.semseg_generation_on_gpu else "cpu"
+        semseg_logits = torch.cat([(logits.to(device=device) / float(num_entries)) for logits, num_entries in semseg_logits], 0)
+
+        if semseg_logits.shape[1] > 2:
+            # multi-class segmentation: first N-1 channels correspond to logits for N-1 classes and the Nth channels is
+            # a fg/bg mask
+            multiclass_logits, fg_logits = semseg_logits.split((semseg_logits.shape[1] - 1, 1), dim=1)
+
+            if self.semseg_output_type == "logits":
+                multiclass_masks.append(multiclass_logits)
+            elif self.semseg_output_type == "probs":
+                multiclass_masks.append(F.softmax(multiclass_logits, dim=1))
+            elif self.semseg_output_type == "argmax":
+                multiclass_masks.append(multiclass_logits.argmax(dim=1))
+
+            fg_masks.append(fg_logits.squeeze(1).sigmoid())
+
+        else:
+            # only fg/bg segmentation: the 2 channels correspond to bg and fg logits, respectively
+            fg_masks.append(F.softmax(semseg_logits, dim=1)[:, 1])
+
+        fg_masks = torch.cat(fg_masks)
+        if multiclass_masks:
+            multiclass_masks = torch.cat(multiclass_masks)
+
+        return fg_masks.cpu(), multiclass_masks.cpu()
+
 
     def get_fg_masks_from_seediness(self, embeddings):
         seediness_scores = defaultdict(lambda: [0., 0.])
@@ -245,6 +341,16 @@ class InteractiveModel(nn.Module):
 
         fg_masks = [(seediness_scores[t][0] / seediness_scores[t][1]) for t in sorted(seediness_scores.keys())]
         return (torch.stack(fg_masks, 0) > self.seediness_fg_threshold)
+    
+
+    def create_clusterer(self):
+        _cfg = cfg.CLUSTERING
+        return SequentialClustering(primary_prob_thresh=_cfg.PRIMARY_PROB_THRESHOLD,
+                                    secondary_prob_thresh=_cfg.SECONDARY_PROB_THRESHOLD,
+                                    min_seediness_prob=_cfg.MIN_SEEDINESS_PROB,
+                                    n_free_dims=get_nb_free_dims(cfg.MODEL.EMBEDDING_DIM_MODE),
+                                    free_dim_stds=cfg.TRAINING.LOSSES.EMBEDDING.FREE_DIM_STDS,
+                                    device=self.clustering_device)
 
 if __name__ == '__main__':
     model = InteractiveModel()
