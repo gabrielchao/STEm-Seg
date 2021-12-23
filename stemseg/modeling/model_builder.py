@@ -272,7 +272,7 @@ def add_in_channels(restore_dict: dict, in_channels: int):
     assert in_channels > 3
     extra_channels = in_channels - restore_dict[name].shape[1]
     pads = torch.zeros((64, extra_channels, 7, 7), device=restore_dict[name].device)
-    nn.init.kaiming_normal_(pads)
+    nn.init.kaiming_uniform_(pads, a=1)
     restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
 
 def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
