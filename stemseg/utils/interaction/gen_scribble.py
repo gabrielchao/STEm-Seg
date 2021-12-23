@@ -172,6 +172,7 @@ def get_scribble(mask, gt, from_zero):
 
         return scribbles[0].astype(np.uint8), scribbles[1].astype(np.uint8)
 
+
 def update_scribble_tube(mask_seq: BinaryMaskSequenceList, gt_seq: BinaryMaskSequenceList, pos_seq: BinaryMaskSequenceList, neg_seq: BinaryMaskSequenceList):
     """
     Updates the positive and negative scribble tubes for the given predicted mask and ground truth
@@ -191,6 +192,7 @@ def update_scribble_tube(mask_seq: BinaryMaskSequenceList, gt_seq: BinaryMaskSeq
     # TODO: use gen_scribble() to update interactions
 
     return pos_seq, neg_seq
+    
     
 if __name__ == '__main__':
     import sys

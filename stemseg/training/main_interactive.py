@@ -188,7 +188,6 @@ class Trainer(object):
         sub_iter_idx = 0
 
         for image_seqs, targets, meta_info in data_loader:
-
             # TODO: implement round-based interaction training as in 
             # Fast User-Guided Video Object Segmentation by Interaction-and-Propagation Networks https://arxiv.org/abs/1904.09791
             
