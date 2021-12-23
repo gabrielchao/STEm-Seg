@@ -239,7 +239,6 @@ class InteractiveModel(nn.Module):
                 max_tracks=8, original_dims=image_seqs.original_image_sizes[i])
             masks.append(instance_masks)
             
-        
         model_output[ModelOutput.INFERENCE][ModelOutput.MASKS] = masks
         return output
     
@@ -306,3 +305,4 @@ class InteractiveModel(nn.Module):
 
 if __name__ == '__main__':
     model = InteractiveModel()
+    
