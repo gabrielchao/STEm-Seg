@@ -16,24 +16,25 @@ def get_center_click_maps(annotations:np.ndarray, masks: np.ndarray) -> np.ndarr
         for t in range(T):
             try:
                 click, _ = simulate_single_centric(masks[i, t])
-                map = gen_gaussian_map([click], 4, (H, W))
-                annotations[i, t, 0] += map
             except:
                 # instance not in frame
                 pass
+            map = gen_gaussian_map(click, 10, (H, W))
+            annotations[i, t, 0] += map
+
     return annotations
 
 def get_blank_interaction_maps(shape):
     """
     Get a blank positive + negative guidance map tube. Convention: the first (index 0)
     channel is the positive and the second (index 1) is the negative.
-    :param shape: tuple(I, T, 2, H, W)
+    :param shape: tuple(I, T, H, W)
     :return ndarray(I, T, 2, H, W)
     """
     I, T, H, W = shape
     return np.zeros((I, T, 2, H, W))
 
-def get_clicks_for_all_frames(sub_targets):
+def get_clicks_for_all_frames(sub_targets: tuple):
     """
     Get a guidance map tube for the given sequences with one click on each instance on all frames.
     :param sub_targets: tuple(
