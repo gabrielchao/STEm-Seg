@@ -169,7 +169,7 @@ class TrainingModel(nn.Module):
             assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 5
             # Concat RGB and guidance maps along the channels dimension
             full_tensor = torch.concat([image_seqs.tensors, interaction_seqs], dim=2)
-            # View video frames along the 'batch' dimension
+            # View video frames as the 'batch' dimension
             full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, 5, height, width)
         else:
             full_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
@@ -259,7 +259,7 @@ class TrainingModel(nn.Module):
 
     def split_embeddings(self, embedding_map):
         """
-        Splits a consolidated embedding map into separate embedding, bandwitdth, and seediness maps.
+        Splits a consolidated embedding map into separate embedding, bandwidth, and seediness maps.
         :param embedding_map: Tensor of shape [N, C, T, H, W] (C = embedding dims + variance dims + seediness dims)
         :return (embedding_map, bandwidth_map, seediness_map) each of shape [N, T, H, W, x] where x is the respective dim
         """

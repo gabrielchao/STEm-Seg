@@ -207,7 +207,7 @@ class Trainer(object):
             sub_dataset = InteractiveDataset(image_seqs, targets)
             sub_data_loader = create_interactive_data_loader(sub_dataset, batch_size, True)
 
-            for sub_image_seq, sub_targets in sub_data_loader:
+            for sub_image_seqs, sub_targets in sub_data_loader:
                 """
                 sub_image_seq: ImageList (N, T, C, H, W),
                 sub_targets: tuple(
@@ -224,7 +224,7 @@ class Trainer(object):
                 interaction_seqs = get_clicks_for_all_frames(sub_targets)
 
                 model_output = self.model(
-                    image_seqs.to(device=self.local_device), 
+                    sub_image_seqs.to(device=self.local_device), 
                     tensor_struct_to(targets, device=self.local_device),
                     interaction_seqs.to(device=self.local_device))
 
