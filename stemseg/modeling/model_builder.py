@@ -160,19 +160,25 @@ class TrainingModel(nn.Module):
         """
         Computes backbone features for a set of image sequences.
         :param image_seqs: Instance of ImageList
+        :param interaction_seqs: tensor(N, T, 2, H, W)
         :return: A dictionary of feature maps with keys denoting the scale.
         """
+        height, width = image_seqs.tensors.shape[-2:]
+
         if interaction_seqs is not None:
             assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 5
-
-        height, width = image_seqs.tensors.shape[-2:]
-        images_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
+            # Concat RGB and guidance maps along the channels dimension
+            full_tensor = torch.concat([image_seqs.tensors, interaction_seqs], dim=2)
+            # View video frames along the 'batch' dimension
+            full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, 5, height, width)
+        else:
+            full_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
 
         if cfg.TRAINING.FREEZE_BACKBONE:
             with torch.no_grad():
-                features = self.backbone(images_tensor)
+                features = self.backbone(full_tensor)
         else:
-            features = self.backbone(images_tensor)
+            features = self.backbone(full_tensor)
 
         return OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, features)])
 
@@ -271,7 +277,7 @@ class TrainingModel(nn.Module):
 
 def add_in_channels(restore_dict: dict, in_channels: int):
     """
-    Add additional input channels to the first layer of the given state dict.
+    Add additional input channels to the end of the first layer of the given state dict.
     :param restore_dict: Model state dict
     :param in_channels: Total number of input channels in the updated dict
     """
