@@ -3,12 +3,13 @@ from datetime import timedelta
 from glob import glob
 
 from stemseg.data.common import tensor_struct_to, collate_fn
+from stemseg.data.interactive_dataset import InteractiveDataset, create_interactive_data_loader
 from stemseg.config import cfg as global_cfg
 from stemseg.modeling.model_builder import build_model
 from stemseg.modeling.interactive_model import InteractiveModel
 from stemseg.utils import ModelPaths, RepoPaths
 from stemseg.utils import distributed as dist_utils
-from stemseg.utils.interaction.gen_scribble import update_scribble_tube
+from stemseg.utils.interaction.gen_interaction import get_clicks_for_all_frames
 
 from stemseg.training.interrupt_detector import InterruptDetector, InterruptException
 from stemseg.training.model_output_manager import ModelOutputManager
@@ -188,75 +189,107 @@ class Trainer(object):
         sub_iter_idx = 0
 
         for image_seqs, targets, meta_info in data_loader:
+            """
+            image_seqs: ImageList (N, T, C, H, W)
+            targets: tuple(
+                dict(
+                    'masks' -> tensor(I, T, H, W),
+                    'category_ids' -> tensor(),
+                    'labels' -> tensor(),
+                    'ignore_masks' -> tensor(T, H, W)
+                )
+            ) (length N)
+            """
             # TODO: implement round-based interaction training as in 
             # Fast User-Guided Video Object Segmentation by Interaction-and-Propagation Networks https://arxiv.org/abs/1904.09791
             
-            # TODO: pass in scribbles (blank if first round)
-            model_output = self.model(
-                image_seqs.to(device=self.local_device), tensor_struct_to(targets, device=self.local_device))
+            # Collate data into batches where each sequence entry is associated with only a single instance
+            sub_dataset = InteractiveDataset(image_seqs, targets)
+            sub_data_loader = create_interactive_data_loader(sub_dataset, batch_size, True)
 
-            # TODO: get new interactions with update_scribble_tube()
+            for sub_image_seq, sub_targets in sub_data_loader:
+                """
+                sub_image_seq: ImageList (N, T, C, H, W),
+                sub_targets: tuple(
+                    dict(
+                        'masks' -> tensor(1, T, H, W),
+                        'category_ids' -> tensor(),
+                        'labels' -> tensor(),
+                        'ignore_masks' -> tensor(T, H, W)
+                    )
+                ) (length N)
+                """
+            
+                # Get clicks-for-all-frames
+                interaction_seqs = get_clicks_for_all_frames(sub_targets)
 
-            dist_utils.synchronize()
-            if self.interrupt_detector.is_interrupted:
-                raise InterruptException()
+                model_output = self.model(
+                    image_seqs.to(device=self.local_device), 
+                    tensor_struct_to(targets, device=self.local_device),
+                    interaction_seqs.to(device=self.local_device))
 
-            optim_loss = output_manager(model_output)
-
-            if self.cfg.MIXED_PRECISION:
-                with amp.scale_loss(optim_loss, self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                optim_loss.backward()
-
-            sub_iter_idx += 1
-            if sub_iter_idx < optimizer_step_interval:
-                continue
-
-            sub_iter_idx = 0
-
-            self.optimizer.step()
-            self.lr_scheduler.step()
-            self.optimizer.zero_grad()
-            self.elapsed_iterations += 1
-
-            logging_vars, _ = output_manager.reset()
-            logging_vars = dist_utils.reduce_dict(logging_vars, average=True)
-            logging_vars = {k: v.item() for k, v in logging_vars.items()}
-
-            if self.is_main_process:
-                add_to_summary = self.elapsed_iterations % opts.summary_interval == 0
-                self.logger.add_training_point(self.elapsed_iterations, add_to_summary, **logging_vars)
-
-                if hasattr(self.lr_scheduler, "get_last_lr"):  # PyTorch versions > 1.5
-                    logging_vars['lr'] = self.lr_scheduler.get_last_lr()[0]
-                else:
-                    logging_vars['lr'] = self.lr_scheduler.get_lr()[0]
-
-                if self.elapsed_iterations % opts.display_interval == 0:
-                    log_func = self.console_logger.info
-                else:
-                    log_func = self.console_logger.debug
-
-                eta, avg_time_per_iter = self.logger.compute_eta(as_string=True)
-                log_func(
-                    "It: {:05d} - {:s} - ETA: {:s} - sec/it: {:.3f}".format(
-                        self.elapsed_iterations,
-                        var_keys_to_str(logging_vars),
-                        eta,
-                        avg_time_per_iter))
-
-            if self.elapsed_iterations % opts.save_interval == 0:
-                if self.is_main_process:
-                    # remove outdated checkpoints
-                    checkpoints = sorted(glob(os.path.join(self.model_save_dir, '%06d.pth')))
-                    if len(checkpoints) > opts.ckpts_to_keep:
-                        for ckpt_path in checkpoints[:-opts.ckpts_to_keep]:
-                            os.remove(ckpt_path)
-
-                    self.backup_session()
+                # TODO: get new interactions with update_scribble_tube()
 
                 dist_utils.synchronize()
+                if self.interrupt_detector.is_interrupted:
+                    raise InterruptException()
+
+                optim_loss = output_manager(model_output)
+
+                if self.cfg.MIXED_PRECISION:
+                    with amp.scale_loss(optim_loss, self.optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    optim_loss.backward()
+
+                sub_iter_idx += 1
+                if sub_iter_idx < optimizer_step_interval:
+                    continue
+
+                sub_iter_idx = 0
+
+                self.optimizer.step()
+                self.lr_scheduler.step()
+                self.optimizer.zero_grad()
+                self.elapsed_iterations += 1
+
+                logging_vars, _ = output_manager.reset()
+                logging_vars = dist_utils.reduce_dict(logging_vars, average=True)
+                logging_vars = {k: v.item() for k, v in logging_vars.items()}
+
+                if self.is_main_process:
+                    add_to_summary = self.elapsed_iterations % opts.summary_interval == 0
+                    self.logger.add_training_point(self.elapsed_iterations, add_to_summary, **logging_vars)
+
+                    if hasattr(self.lr_scheduler, "get_last_lr"):  # PyTorch versions > 1.5
+                        logging_vars['lr'] = self.lr_scheduler.get_last_lr()[0]
+                    else:
+                        logging_vars['lr'] = self.lr_scheduler.get_lr()[0]
+
+                    if self.elapsed_iterations % opts.display_interval == 0:
+                        log_func = self.console_logger.info
+                    else:
+                        log_func = self.console_logger.debug
+
+                    eta, avg_time_per_iter = self.logger.compute_eta(as_string=True)
+                    log_func(
+                        "It: {:05d} - {:s} - ETA: {:s} - sec/it: {:.3f}".format(
+                            self.elapsed_iterations,
+                            var_keys_to_str(logging_vars),
+                            eta,
+                            avg_time_per_iter))
+
+                if self.elapsed_iterations % opts.save_interval == 0:
+                    if self.is_main_process:
+                        # remove outdated checkpoints
+                        checkpoints = sorted(glob(os.path.join(self.model_save_dir, '%06d.pth')))
+                        if len(checkpoints) > opts.ckpts_to_keep:
+                            for ckpt_path in checkpoints[:-opts.ckpts_to_keep]:
+                                os.remove(ckpt_path)
+
+                        self.backup_session()
+
+                    dist_utils.synchronize()
 
         self.console_logger.info(
             "Training complete\n"

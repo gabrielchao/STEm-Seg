@@ -98,12 +98,17 @@ class TrainingModel(nn.Module):
             x = x.permute(0, 2, 1, 3, 4)
         return x
 
-    def forward(self, image_seqs, targets):
+    def forward(self, image_seqs, targets, interaction_seqs=None):
+        """
+        :param image_seqs: ImageList
+        :param targets: dict
+        :param interaction_seqs: tensor(N, T, 2, H, W)
+        """
         targets = self.resize_masks(targets)
 
         num_seqs = image_seqs.num_seqs
         num_frames = image_seqs.num_frames
-        features = self.run_backbone(image_seqs)
+        features = self.run_backbone(image_seqs, interaction_seqs)
 
         embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames)
 
@@ -151,12 +156,15 @@ class TrainingModel(nn.Module):
 
         return targets
 
-    def run_backbone(self, image_seqs):
+    def run_backbone(self, image_seqs, interaction_seqs=None):
         """
         Computes backbone features for a set of image sequences.
         :param image_seqs: Instance of ImageList
         :return: A dictionary of feature maps with keys denoting the scale.
         """
+        if interaction_seqs is not None:
+            assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 5
+
         height, width = image_seqs.tensors.shape[-2:]
         images_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
 
