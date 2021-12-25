@@ -16,12 +16,11 @@ def get_center_click_maps(annotations:np.ndarray, masks: np.ndarray) -> np.ndarr
         for t in range(T):
             try:
                 click, _ = simulate_single_centric(masks[i, t])
+                map = gen_gaussian_map(click[:1], 10, (H, W)) # Get first click only
+                annotations[i, t, 0] += map
             except:
                 # instance not in frame
                 pass
-            map = gen_gaussian_map(click, 10, (H, W))
-            annotations[i, t, 0] += map
-
     return annotations
 
 def get_blank_interaction_maps(shape):

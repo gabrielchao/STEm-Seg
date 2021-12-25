@@ -18,6 +18,8 @@ def simulate_single_centric(object_mask):
 
     try:
         cx_click = np.array([center_of_mass(object_mask)], dtype=int)
+        if np.any(np.isnan(cx_click)):
+            raise Exception('Object not present')
     except Exception as e:
         raise IndexError('Center of mass computation failed for given instance mask')
 

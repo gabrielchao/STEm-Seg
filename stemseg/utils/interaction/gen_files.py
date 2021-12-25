@@ -15,7 +15,7 @@ if __name__ == '__main__':
     davis = Davis(root_path)
     for sequence in davis.sets['trainval']:
         print(f'Processing sequence: {sequence}...')
-        annotations = davis.load_annotations(sequence)
+        annotations = davis.load_annotations(sequence) # This loads the folder 'Annotations' NOT 'Annotations_unsupervised'!
         labels = set(np.unique(annotations)) - {0} # Remove background label
         instance_masks = []
         for label in labels:
