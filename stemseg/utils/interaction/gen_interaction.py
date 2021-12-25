@@ -46,14 +46,15 @@ def get_clicks_for_all_frames(sub_targets: tuple):
                 ) (length N)
     :return tensor(N, T, 2, H, W)
     """
-    N, T, H, W = len(sub_targets), 
+    N = len(sub_targets)
+    T, H, W = sub_targets[0]['masks'].shape[1:4]
     torch.zeros((N, T, 2, H, W))
     interactions = []
     for d in sub_targets:
         interactions.append(
-            torch.from_numpy(
+            torch.Tensor( # Default FloatTensor dtype
                 get_center_click_maps(
-                    get_blank_interaction_maps((1, T, H, W)), d['masks'].detach().numpy().cpu())
+                    get_blank_interaction_maps((1, T, H, W)), d['masks'].detach().cpu().numpy())
                         .squeeze(0))) # (T, 2, H, W)
     interaction_seqs = torch.stack(interactions, dim=0) # (N, T, 2, H, W)
     return interaction_seqs

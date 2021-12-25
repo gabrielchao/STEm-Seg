@@ -168,7 +168,7 @@ class TrainingModel(nn.Module):
         if interaction_seqs is not None:
             assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 5
             # Concat RGB and guidance maps along the channels dimension
-            full_tensor = torch.concat([image_seqs.tensors, interaction_seqs], dim=2)
+            full_tensor = torch.cat([image_seqs.tensors, interaction_seqs], dim=2)
             # View video frames as the 'batch' dimension
             full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, 5, height, width)
         else:
@@ -285,7 +285,7 @@ def add_in_channels(restore_dict: dict, in_channels: int):
     assert restore_dict[name].shape == (64, 3, 7, 7)
     assert in_channels > 3
     extra_channels = in_channels - restore_dict[name].shape[1]
-    pads = torch.zeros((64, extra_channels, 7, 7), device=restore_dict[name].device)
+    pads = torch.zeros((64, extra_channels, 7, 7), dtype=restore_dict[name].dtype, device=restore_dict[name].device)
     nn.init.kaiming_uniform_(pads, a=1)
     restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
 
@@ -314,6 +314,7 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
             restore_dict = torch.load(pretrained_wts_file)
             if cfg.MODEL.RESNETS.STEM_IN_CHANNELS != 3:
                 # Add guidance map channels
+                print_fn(f"Adapting backbone to {cfg.MODEL.RESNETS.STEM_IN_CHANNELS} input channels")
                 add_in_channels(restore_dict, cfg.MODEL.RESNETS.STEM_IN_CHANNELS)
             backbone.load_state_dict(restore_dict, strict=True)
         else:
