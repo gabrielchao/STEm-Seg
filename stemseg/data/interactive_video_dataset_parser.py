@@ -42,22 +42,40 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
                 seg_iids, set(seq["categories"].keys())
             )
     
-    guidance_maps = dict()
+    guidance_maps = dict() # dict(str -> dict(int -> dict('positive' -> list(str), 'negative' -> list(str) (length T))) (length I)) (length N)
     # get guidance map paths
     for sequence_name in os.listdir(guidance_dir):
-        if not os.path.isdir(sequence_name):
+        if not os.path.isdir(os.path.join(guidance_dir, sequence_name)):
             continue
 
         instances = dict()
         for i, instance_name in enumerate(sorted(os.listdir(os.path.join(guidance_dir, sequence_name)))):
-            files = os.listdir(os.path.join(guidance_dir, sequence_name, instance_name))
+            # Get positive maps
+            try:
+                pos_files = os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'positive'))
+            except FileNotFoundError:
+                raise ValueError(f"Could not find positive guidance directory for sequence {sequence_name} {instance_name}")
             # Don't include guidance_dir in guidance paths, same as image_paths not including base_dir
-            files = [os.path.join(sequence_name, instance_name, file_name) for file_name in files]
-            instances[i] = files
+            pos_files = [os.path.join(sequence_name, instance_name, 'positive', file_name) for file_name in pos_files]
+            
+            # Get negative maps
+            try:
+                neg_files = os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'negative'))
+            except FileNotFoundError:
+                raise ValueError(f"Could not find negative guidance directory for sequence: {sequence_name} {instance_name}")
+            neg_files = [os.path.join(sequence_name, instance_name, 'negative', file_name) for file_name in neg_files]
+
+            if len(pos_files) != len(neg_files):
+                raise ValueError(f"Mismatch in number of positive and negative guidance time steps for sequence {sequence_name} {instance_name}")
+
+            instances[i] = {
+                'positive': pos_files,
+                'negative': neg_files
+            }
         
-        first_length = len(instances[0])
-        for instance in instances:
-            if len(instance) != first_length:
+        first_length = len(instances[0]['positive'])
+        for instance in instances.values():
+            if len(instance['positive']) != first_length:
                 raise ValueError(f"Mismatch in number of guidance time steps per instance for sequence: {sequence_name}")
 
         guidance_maps[sequence_name] = instances
@@ -66,9 +84,9 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
     for seq in dataset["sequences"]:
         if seq['id'] not in guidance_maps:
             raise ValueError(f"No guidance maps found for sequence: {seq['id']}")
-        if seq['length'] != len(guidance_maps[seq['id']][0]):
-            raise ValueError(f"Expected {seq['length']} guidance time steps for sequence {seq['id']}, found {len(guidance_maps[seq['id']][0])}")
-        seq['guidance_paths'] = guidance_maps[seq['id']] # dict(int -> list(str) (length T)) (length I)
+        if seq['length'] != len(guidance_maps[seq['id']][0]['positive']):
+            raise ValueError(f"Expected {seq['length']} guidance time steps for sequence {seq['id']}, found {len(guidance_maps[seq['id']][0]['positive'])}")
+        seq['guidance_paths'] = guidance_maps[seq['id']] # dict(int -> dict('positive' -> list(str), 'negative' -> list(str) (length T))) (length I)
 
     seqs = [InteractiveVideoSequence(seq, base_dir, guidance_dir) for seq in dataset["sequences"]]
 
@@ -89,28 +107,42 @@ class InteractiveVideoSequence(GenericVideoSequence):
         super().__init__(seq_dict, base_dir)
 
         self.guidance_dir = guidance_dir
-        self.guidance_paths = seq_dict["guidance_paths"] # dict(int -> list(str) (length T)) (length I)
+        self.guidance_paths = seq_dict["guidance_paths"] # dict(int -> dict('positive' -> list(str), 'negative' -> list(str) (length T))) (length I)
     
     def load_guidance_maps(self, frame_idxes=None):
         """
-        Load guidance maps from disk.
+        Load guidance tubes from disk.
         :param frame_idxes: list()
-        :return: list(list(ndarray) (length T)) (length I)
+        :return: list(ndarray(T, 2, H, W)) (length I)
         """
         if frame_idxes is None:
             frame_idxes = list(range(len(self.image_paths)))
         
-        guidance_maps = []
+        guidance_maps = [] # list(ndarray(T, 2, H, W)) (length I)
         for instance in self.guidance_paths.values():
-            guidance_i = []
+            pos_i = [] # list(ndarray(H, W)) (length T)
+            neg_i = [] # list(ndarray(H, W)) (length T)
             
             for t in frame_idxes:
-                guidance_map = cv2.imread(os.path.join(self.guidance_dir, instance[t]), cv2.IMREAD_GRAYSCALE).astype('float64')
-                if guidance_map is None:
-                    raise ValueError("No guidance map found at path: {}".format(os.path.join(self.guidance_dir, instance[t])))
-                guidance_map = guidance_map.astype('float64')
-                guidance_map /= 255
-                guidance_i.append(guidance_map)
+                pos = cv2.imread(os.path.join(self.guidance_dir, instance['positive'][t]), cv2.IMREAD_GRAYSCALE).astype('float64')
+                if pos is None:
+                    raise ValueError("No positive guidance map found at path: {}".format(os.path.join(self.guidance_dir, instance['positive'][t])))
+                pos = pos.astype('float64')
+                pos /= 255
+                pos_i.append(pos)
+            
+            for t in frame_idxes:
+                neg = cv2.imread(os.path.join(self.guidance_dir, instance['negative'][t]), cv2.IMREAD_GRAYSCALE).astype('float64')
+                if neg is None:
+                    raise ValueError("No negative guidance map found at path: {}".format(os.path.join(self.guidance_dir, instance['negative'][t])))
+                neg = neg.astype('float64')
+                neg /= 255
+                neg_i.append(neg)
+            
+            pos_i = np.stack(pos_i, axis=0) # ndarray(T, H, W)
+            neg_i = np.stack(neg_i, axis=0) # ndarray(T, H, W)
+            guidance_map = np.stack([pos_i, neg_i], axis=1) # ndarray(T, 2, H, W)
+            guidance_maps.append(guidance_map)
 
         return guidance_maps
 
@@ -119,7 +151,10 @@ class InteractiveVideoSequence(GenericVideoSequence):
         self.image_paths = [self.image_paths[t] for t in t_to_keep]
         self.segmentations = [self.segmentations[t] for t in t_to_keep]
         self.guidance_paths = {
-            iid: [self.guidance_path[iid][t] for t in t_to_keep] 
+            iid: {
+                'positive': [self.guidance_paths[iid]['positive'][t] for t in t_to_keep],
+                'negative': [self.guidance_paths[iid]['negative'][t] for t in t_to_keep]
+            }
             for iid in self.guidance_paths.keys()
         }
 
@@ -141,9 +176,23 @@ class InteractiveVideoSequence(GenericVideoSequence):
                 for t, segmentations_t in enumerate(self.segmentations) if t in frame_idxes
             ],
             "guidance_maps": {
-                iid: [self.guidance_paths[iid][t] for t in frame_idxes]
+                iid: {
+                    'positive': [self.guidance_paths[iid]['positive'][t] for t in frame_idxes],
+                    'negative': [self.guidance_paths[iid]['negative'][t] for t in frame_idxes]
+                }
                 for iid in instance_ids_to_keep
             }
         }
 
         return self.__class__(subseq_dict, self.base_dir, self.guidance_dir)
+
+if __name__ == '__main__':
+    sequences, meta_info = parse_interactive_video_dataset(
+        '/home/gabriel/datasets/DAVIS/JPEGImages/480p',
+        '/home/gabriel/datasets/dataset_jsons/davis_val.json',
+        '/home/gabriel/datasets/DAVIS/CustomGuidance/480p')
+    print([sequence.id for sequence in sequences])
+
+    import timeit
+    print(f'Loading guidance for sequence {sequences[0].id}...')
+    print(f'Done in {timeit.timeit(lambda: print(sequences[0].load_guidance_maps()[0].shape), number=1)}')
