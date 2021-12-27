@@ -4,6 +4,7 @@ import cv2
 import json
 import numpy as np
 import os
+from copy import deepcopy
 
 from stemseg.data.generic_video_dataset_parser import GenericVideoSequence
 
@@ -11,7 +12,8 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
     """
     Parse the interactive dataset given by the given locations, returning a list of
     InteractiveVideoSequences and a meta-info dictionary. The dataset must include
-    images and guidance maps.
+    images and guidance maps. The expected directory structure is that generated 
+    by stemseg.utils.interaction.gen_files.
     :param base_dir: str
     :param dataset_json: str
     :param guidance_dir: str
@@ -97,17 +99,26 @@ class InteractiveVideoSequence(GenericVideoSequence):
     """
     Class that extends GenericVideoSequence to support the loading of guidance maps.
     """
-    def __init__(self, seq_dict, base_dir, guidance_dir):
+    def __init__(self, seq_dict, base_dir, guidance_dir, is_split=False):
         """
         Initialize an InteractiveVideoSequence.
         :param seq_dict: dict()
         :param base_dir: str
         :param guidance_dir: str
+        :param is_split: bool. True if this sequence has already been split.
         """
         super().__init__(seq_dict, base_dir)
 
         self.guidance_dir = guidance_dir
         self.guidance_paths = seq_dict["guidance_paths"] # dict(int -> dict('positive' -> list(str), 'negative' -> list(str) (length T))) (length I)
+        self.is_split = is_split
+
+    @property
+    def num_guided_instances(self):
+        """
+        The number of instances with guidance maps in this sequence.
+        """
+        return len(self.guidance_paths)
     
     def load_guidance_maps(self, frame_idxes=None):
         """
@@ -146,6 +157,7 @@ class InteractiveVideoSequence(GenericVideoSequence):
 
         return guidance_maps
 
+    # Override
     def filter_zero_instance_frames(self):
         t_to_keep = [t for t in range(len(self)) if len(self.segmentations[t]) > 0]
         self.image_paths = [self.image_paths[t] for t in t_to_keep]
@@ -158,6 +170,7 @@ class InteractiveVideoSequence(GenericVideoSequence):
             for iid in self.guidance_paths.keys()
         }
 
+    # Override
     def extract_subsequence(self, frame_idxes, new_id=""):
         assert all([t in range(len(self)) for t in frame_idxes])
         instance_ids_to_keep = set(sum([list(self.segmentations[t].keys()) for t in frame_idxes], []))
@@ -175,7 +188,7 @@ class InteractiveVideoSequence(GenericVideoSequence):
                 }
                 for t, segmentations_t in enumerate(self.segmentations) if t in frame_idxes
             ],
-            "guidance_maps": {
+            "guidance_paths": {
                 iid: {
                     'positive': [self.guidance_paths[iid]['positive'][t] for t in frame_idxes],
                     'negative': [self.guidance_paths[iid]['negative'][t] for t in frame_idxes]
@@ -184,7 +197,36 @@ class InteractiveVideoSequence(GenericVideoSequence):
             }
         }
 
-        return self.__class__(subseq_dict, self.base_dir, self.guidance_dir)
+        return self.__class__(subseq_dict, self.base_dir, self.guidance_dir, self.is_split)
+
+    def split_by_guided_instances(self):
+        """
+        Splits this sequence into InteractiveVideoSequences with the same frames but
+        with only a single guided instance each. Each sequence will have the id 
+        '{original_id}_instance_{instance_id}'. Can only be called if this sequence
+        has not been split before.
+        :return list(InteractiveVideoSequence)
+        """
+        if self.is_split:
+            raise TypeError("Cannot split InteractiveVideoSequence that has already been split")
+
+        sequences = []
+        for iid in self.guidance_paths.keys():
+            seq_dict = {
+                "id": f"{self.id}_instance_{iid}",
+                "height": self.image_dims[0],
+                "width": self.image_dims[1],
+                "image_paths": self.image_paths.copy(),
+                "categories": self.instance_categories.copy(),
+                "segmentations": deepcopy(self.segmentations),
+                "guidance_paths": {
+                    iid: deepcopy(self.guidance_paths[iid])
+                }
+            }
+            seq = self.__class__(seq_dict, self.base_dir, self.guidance_dir, True)
+            sequences.append(seq)
+        return sequences
+
 
 if __name__ == '__main__':
     sequences, meta_info = parse_interactive_video_dataset(
@@ -192,6 +234,9 @@ if __name__ == '__main__':
         '/home/gabriel/datasets/dataset_jsons/davis_val.json',
         '/home/gabriel/datasets/DAVIS/CustomGuidance/480p')
     print([sequence.id for sequence in sequences])
+
+    print('Split sequences:')
+    print([subseq.id for seq in sequences for subseq in seq.split_by_guided_instances()])
 
     import timeit
     print(f'Loading guidance for sequence {sequences[0].id}...')
