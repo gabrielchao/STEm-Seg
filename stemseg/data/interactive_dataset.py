@@ -81,3 +81,17 @@ def create_interactive_data_loader(dataset: InteractiveDataset, batch_size, shuf
         shuffle,
         collate_fn=collate_interactive
     )
+
+if __name__ == '__main__':
+    import torch
+    image_seqs = ImageList.from_image_sequence_list([[torch.zeros((3, 2, 2))]], ((3, 3),))
+    targets = ({
+        'masks': torch.stack((torch.zeros((2, 2)), torch.ones(2, 2))).unsqueeze(1),
+        'category_ids': torch.tensor([1]),
+        'labels': torch.tensor([1, 2]),
+        'ignore_masks': torch.zeros((1, 2, 2))
+    },)
+    sub_dataset = InteractiveDataset(image_seqs, targets)
+    print(sub_dataset[0][1]['masks'])
+    print(sub_dataset[1][1]['masks'])
+    

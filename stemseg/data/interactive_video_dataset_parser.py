@@ -54,7 +54,7 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
         for i, instance_name in enumerate(sorted(os.listdir(os.path.join(guidance_dir, sequence_name)))):
             # Get positive maps
             try:
-                pos_files = os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'positive'))
+                pos_files = sorted(os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'positive')))
             except FileNotFoundError:
                 raise ValueError(f"Could not find positive guidance directory for sequence {sequence_name} {instance_name}")
             # Don't include guidance_dir in guidance paths, same as image_paths not including base_dir
@@ -62,7 +62,7 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
             
             # Get negative maps
             try:
-                neg_files = os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'negative'))
+                neg_files = sorted(os.listdir(os.path.join(guidance_dir, sequence_name, instance_name, 'negative')))
             except FileNotFoundError:
                 raise ValueError(f"Could not find negative guidance directory for sequence: {sequence_name} {instance_name}")
             neg_files = [os.path.join(sequence_name, instance_name, 'negative', file_name) for file_name in neg_files]
@@ -282,6 +282,8 @@ if __name__ == '__main__':
     split_sequences = InteractiveVideoSequence.split_list_by_guided_instances(sequences)
     print(f'There are {len(split_sequences)} split sequences:')
     print([seq.id for seq in split_sequences])
+    print(split_sequences[0].guidance_paths)
+    print(split_sequences[1].guidance_paths)
 
     import timeit
     print(f'Loading guidance for sequence {split_sequences[0].id}...')
