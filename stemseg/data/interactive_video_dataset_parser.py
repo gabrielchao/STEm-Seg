@@ -166,13 +166,15 @@ class InteractiveVideoSequence(GenericVideoSequence):
         """
         return len(self.guidance_paths)
     
-    def get_step_paths(self, frame_idx, instance_idx=0):
+    def get_step_paths(self, frame_idx, instance_idx=None):
         """
         Get a image-guidance map path pair for a single time step.
         :param frame_idx: int
         :param instance_idx: int
         :return tuple(str, tuple(str, str))
         """
+        if instance_idx is None:
+            instance_idx = list(self.guidance_paths)[0] # Get first instance key
         return (self.image_paths[frame_idx],
             (self.guidance_paths[instance_idx]['positive'][frame_idx],self.guidance_paths[instance_idx]['negative'][frame_idx]))
     
