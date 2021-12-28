@@ -71,8 +71,14 @@ class InteractiveInferenceLoader(Dataset):
         
         guidance_map = np.stack([pos_map, neg_map], axis=0) # (2, H, W)
         guidance_map = torch.Tensor(guidance_map)
-        
-        return image.squeeze(0), (image_width, image_height), guidance_map, index
+
+        # resize guidance map
+        guidance_map = F.interpolate(guidance_map.unsqueeze(0), (new_height, new_width), mode='bilinear', align_corners=False) # (1, 2, H, W)
+
+        assert image.shape[2:3] == guidance_map.shape[2:3], \
+            f'Image and guidance map height/width mismatch: {image.shape} and {guidance_map.shape}'
+
+        return image.squeeze(0), (image_width, image_height), guidance_map.squeeze(0), index
     
     def preload(self):
         """
@@ -98,8 +104,15 @@ def collate_fn(samples):
     )
     """
     image_seqs, original_dims, guidance_maps, idxes = zip(*samples)
+
     image_seqs = [[im] for im in image_seqs]
-    image_seqs = ImageList.from_image_sequence_list(image_seqs, original_dims)
+    image_seqs = ImageList.from_image_sequence_list(image_seqs, original_dims) # This resizes images to nearest multiple of 32
+    
     guidance_maps = torch.stack(guidance_maps, dim=0) # (T, 2, H, W)
-    guidance_maps.unsqueeze_(1) # (T, 1, 2, H, W)
-    return image_seqs, guidance_maps, idxes
+    # Resize guidance maps to match image_seqs using same logic as in ImageList
+    max_height, max_width = image_seqs.max_size
+    resized_guidance = torch.zeros((guidance_maps.shape[0], 2, max_height, max_width))
+    resized_guidance[:, :, :guidance_maps.shape[2], :guidance_maps.shape[3]] = guidance_maps # (T, 2, mH, mW)
+    resized_guidance.unsqueeze_(1) # (T, 1, 2, mH, mW)
+    
+    return image_seqs, resized_guidance, idxes
