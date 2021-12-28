@@ -194,7 +194,7 @@ def load_cfg(args):
     if not os.path.exists(cfg_file):
         dataset_cfgs = {
             "davis": "davis_2.yaml",
-            "davis_interactive": "davis_interactive_2",
+            "davis_interactive": "davis_interactive_2.yaml",
             "ytvis": "youtube_vis.yaml",
             "kittimots": "kitti_mots_2.yaml"
         }
