@@ -5,6 +5,7 @@ from .mapillary_data_loader import MapillaryDataLoader
 from .mots_data_loader import MOTSDataLoader
 from .pascal_voc_data_loader import PascalVOCDataLoader
 from .inference_image_loader import InferenceImageLoader
+from .interactive_inference_loader import InteractiveInferenceLoader
 
 from .video_dataset import VideoDataset
 from .generic_video_dataset_parser import parse_generic_video_dataset

@@ -9,7 +9,7 @@ from stemseg.inference.online_chainer import OnlineChainer
 from stemseg.inference.clusterers import SequentialClustering
 
 from stemseg.data.generic_video_dataset_parser import parse_generic_video_dataset
-from stemseg.data.interactive_video_dataset_parser import parse_interactive_video_dataset
+from stemseg.data.interactive_video_dataset_parser import InteractiveVideoSequence, parse_interactive_video_dataset
 from stemseg.data import DavisUnsupervisedPaths as DavisPaths, YoutubeVISPaths, KITTIMOTSPaths
 
 from stemseg.modeling.inference_model import InferenceModel
@@ -138,7 +138,11 @@ class TrackGenerator(object):
             len(sequence), cfg.INPUT.NUM_FRAMES, self.dataset_name, self.frame_overlap)
 
         image_paths = [os.path.join(sequence.base_dir, path) for path in sequence.image_paths]
-        inference_output = self.model(image_paths, subseq_idxes)
+        
+        if isinstance(sequence, InteractiveVideoSequence):
+            inference_output = self.model(image_paths, subseq_idxes, sequence)
+        else:
+            inference_output = self.model(image_paths, subseq_idxes)
 
         fg_masks, multiclass_masks = inference_output['fg_masks'], inference_output['multiclass_masks']
 
@@ -258,6 +262,7 @@ def main(args):
         output_generator = DavisOutputGenerator(output_dir, OnlineChainer.OUTLIER_LABEL, args.save_vis,
                                                 upscaled_inputs=cluster_full_scale)
         max_tracks = 1
+        sequences = InteractiveVideoSequence.split_list_by_guided_instances(sequences)
 
     elif args.dataset in "ytvis":
         sequences, meta_info = parse_generic_video_dataset(YoutubeVISPaths.val_base_dir(),

@@ -1,6 +1,8 @@
 from collections import defaultdict, namedtuple
 from stemseg.data import InferenceImageLoader
 from stemseg.data.inference_image_loader import collate_fn
+from stemseg.data.interactive_inference_loader import InteractiveInferenceLoader, collate_fn as interactive_collate_fn
+from stemseg.data.interactive_video_dataset_parser import InteractiveVideoSequence
 from stemseg.modeling.model_builder import build_model
 from stemseg.utils.timer import Timer
 
@@ -61,11 +63,12 @@ class InferenceModel(nn.Module):
             return x
 
     @torch.no_grad()
-    def forward(self, image_paths, subseq_idxes):
+    def forward(self, image_paths, subseq_idxes, interactive_sequence:InteractiveVideoSequence=None):
         """
         Initialize a new sequence of images (arbitrary length)
         :param image_paths: list of file paths to the images
         :param subseq_idxes: list of tuples containing frame indices of the sub-sequences
+        :param interactive_sequence: InteractiveVideoSequence. Passing this causes image_paths to be ignored.
         :return dict('fg_masks' -> tensor(T, C, H, W), 
                      'multiclass_masks' -> tensor(T, C, H, W), 
                      'embeddings' -> list(namedtuple(
@@ -75,14 +78,22 @@ class InferenceModel(nn.Module):
                          'seediness' -> tensor)))
         """
 
-        # create an image loader
-        if self.preload_images:
-            image_loader = InferenceImageLoader(self.load_images(image_paths))
+        if interactive_sequence:
+            image_loader = InteractiveInferenceLoader(interactive_sequence)
+            if self.preload_images:
+                image_loader.preload()
+            
+            image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=interactive_collate_fn,
+                                    drop_last=False)
         else:
-            image_loader = InferenceImageLoader(image_paths)
+            # create an image loader
+            if self.preload_images:
+                image_loader = InferenceImageLoader(self.load_images(image_paths))
+            else:
+                image_loader = InferenceImageLoader(image_paths)
 
-        image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=collate_fn,
-                                  drop_last=False)
+            image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=collate_fn,
+                                    drop_last=False)
 
         semseg_logits = [[0., 0] for _ in range(len(image_paths))]
         embeddings_maps = []
@@ -103,10 +114,19 @@ class InferenceModel(nn.Module):
         current_subseq = {t: False for t in subseq_idxes[0]}
         current_subseq_as_list = subseq_idxes[0]
 
-        for images, idxes in tqdm(image_loader, total=len(image_loader)):
+        for data in tqdm(image_loader, total=len(image_loader)):
+            if interactive_sequence:
+                images, interactions, idxes = data
+            else:
+                images, idxes = data
+
             assert len(idxes) == 1
             frame_id = idxes[0]
-            backbone_features[frame_id] = self._model.run_backbone(images.cuda())
+
+            if interactive_sequence:
+                backbone_features[frame_id] = self._model.run_backbone(images.cuda(), interactions.cuda())
+            else:
+                backbone_features[frame_id] = self._model.run_backbone(images.cuda())
 
             if frame_id in current_subseq:
                 current_subseq[frame_id] = True

@@ -95,6 +95,52 @@ def parse_interactive_video_dataset(base_dir, dataset_json, guidance_dir):
     return seqs, meta_info
 
 
+def load_guidance_map(path) -> np.ndarray:
+    """
+    Load a single guidance map from disk.
+    :param path: str
+    :return ndarray(H, W)
+    """
+    guidance = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if guidance is None:
+        raise ValueError(f"No guidance map found at path: {path}")
+    guidance = guidance.astype('float64')
+    guidance /= 255
+    return guidance
+
+
+def load_guidance_maps(guidance_dir, guidance_paths, frame_idxes=None):
+    """
+    Load guidance tubes from disk.
+    :param guidance_dir: str
+    :param guidance_paths: dict(int -> dict('positive' -> list(str), 'negative' -> list(str) (length T))) (length I)
+    :param frame_idxes: list()
+    :return: list(ndarray(T, 2, H, W)) (length I)
+    """
+    if frame_idxes is None:
+        frame_idxes = list(range(len(guidance_paths[0]['positive'])))
+    
+    guidance_maps = [] # list(ndarray(T, 2, H, W)) (length I)
+    for instance in guidance_paths.values():
+        pos_i = [] # list(ndarray(H, W)) (length T)
+        neg_i = [] # list(ndarray(H, W)) (length T)
+        
+        for t in frame_idxes:
+            pos = load_guidance_map(os.path.join(guidance_dir, instance['positive'][t]))
+            pos_i.append(pos)
+        
+        for t in frame_idxes:
+            neg = load_guidance_map(os.path.join(guidance_dir, instance['negative'][t]))
+            neg_i.append(neg)
+        
+        pos_i = np.stack(pos_i, axis=0) # ndarray(T, H, W)
+        neg_i = np.stack(neg_i, axis=0) # ndarray(T, H, W)
+        guidance_map = np.stack([pos_i, neg_i], axis=1) # ndarray(T, 2, H, W)
+        guidance_maps.append(guidance_map)
+
+    return guidance_maps
+
+
 class InteractiveVideoSequence(GenericVideoSequence):
     """
     Class that extends GenericVideoSequence to support the loading of guidance maps.
@@ -120,6 +166,16 @@ class InteractiveVideoSequence(GenericVideoSequence):
         """
         return len(self.guidance_paths)
     
+    def get_step_paths(self, frame_idx, instance_idx=0):
+        """
+        Get a image-guidance map path pair for a single time step.
+        :param frame_idx: int
+        :param instance_idx: int
+        :return tuple(str, tuple(str, str))
+        """
+        return (self.image_paths[frame_idx],
+            (self.guidance_paths[instance_idx]['positive'][frame_idx],self.guidance_paths[instance_idx]['negative'][frame_idx]))
+    
     def load_guidance_maps(self, frame_idxes=None):
         """
         Load guidance tubes from disk.
@@ -129,31 +185,7 @@ class InteractiveVideoSequence(GenericVideoSequence):
         if frame_idxes is None:
             frame_idxes = list(range(len(self.image_paths)))
         
-        guidance_maps = [] # list(ndarray(T, 2, H, W)) (length I)
-        for instance in self.guidance_paths.values():
-            pos_i = [] # list(ndarray(H, W)) (length T)
-            neg_i = [] # list(ndarray(H, W)) (length T)
-            
-            for t in frame_idxes:
-                pos = cv2.imread(os.path.join(self.guidance_dir, instance['positive'][t]), cv2.IMREAD_GRAYSCALE).astype('float64')
-                if pos is None:
-                    raise ValueError("No positive guidance map found at path: {}".format(os.path.join(self.guidance_dir, instance['positive'][t])))
-                pos = pos.astype('float64')
-                pos /= 255
-                pos_i.append(pos)
-            
-            for t in frame_idxes:
-                neg = cv2.imread(os.path.join(self.guidance_dir, instance['negative'][t]), cv2.IMREAD_GRAYSCALE).astype('float64')
-                if neg is None:
-                    raise ValueError("No negative guidance map found at path: {}".format(os.path.join(self.guidance_dir, instance['negative'][t])))
-                neg = neg.astype('float64')
-                neg /= 255
-                neg_i.append(neg)
-            
-            pos_i = np.stack(pos_i, axis=0) # ndarray(T, H, W)
-            neg_i = np.stack(neg_i, axis=0) # ndarray(T, H, W)
-            guidance_map = np.stack([pos_i, neg_i], axis=1) # ndarray(T, 2, H, W)
-            guidance_maps.append(guidance_map)
+        guidance_maps = load_guidance_maps(self.guidance_dir, self.guidance_paths, frame_idxes)
 
         return guidance_maps
 
@@ -201,7 +233,7 @@ class InteractiveVideoSequence(GenericVideoSequence):
 
     def split_by_guided_instances(self):
         """
-        Splits this sequence into InteractiveVideoSequences with the same frames but
+        Split this sequence into InteractiveVideoSequences with the same frames but
         with only a single guided instance each. Each sequence will have the id 
         '{original_id}_instance_{instance_id}'. Can only be called if this sequence
         has not been split before.
@@ -226,6 +258,15 @@ class InteractiveVideoSequence(GenericVideoSequence):
             seq = self.__class__(seq_dict, self.base_dir, self.guidance_dir, True)
             sequences.append(seq)
         return sequences
+    
+    @staticmethod
+    def split_list_by_guided_instances(sequences: list):
+        """
+        Split a list of InteractiveVideoSequences with split_by_guided_instances().
+        :param sequences: list(InteractiveVideoSequences)
+        :return list(InteractiveVideoSequences)
+        """
+        return [subseq for seq in sequences for subseq in seq.split_by_guided_instances()]
 
 
 if __name__ == '__main__':
@@ -233,11 +274,13 @@ if __name__ == '__main__':
         '/home/gabriel/datasets/DAVIS/JPEGImages/480p',
         '/home/gabriel/datasets/dataset_jsons/davis_val.json',
         '/home/gabriel/datasets/DAVIS/CustomGuidance/480p')
+    print(f'There are {len(sequences)} sequences:')
     print([sequence.id for sequence in sequences])
 
-    print('Split sequences:')
-    print([subseq.id for seq in sequences for subseq in seq.split_by_guided_instances()])
+    split_sequences = InteractiveVideoSequence.split_list_by_guided_instances(sequences)
+    print(f'There are {len(split_sequences)} split sequences:')
+    print([seq.id for seq in split_sequences])
 
     import timeit
-    print(f'Loading guidance for sequence {sequences[0].id}...')
-    print(f'Done in {timeit.timeit(lambda: print(sequences[0].load_guidance_maps()[0].shape), number=1)}')
+    print(f'Loading guidance for sequence {split_sequences[0].id}...')
+    print(f'Done in {timeit.timeit(lambda: print(split_sequences[0].load_guidance_maps()[0].shape), number=1)}')
