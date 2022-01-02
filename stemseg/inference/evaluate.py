@@ -80,7 +80,7 @@ def main(args):
 
     # Set up logging to both console and file
     file = os.path.join((args.output_dir if args.output_dir else args.results_dir), 'metrics.txt')
-    targets = logging.StreamHandler(sys.stdout), logging.FileHandler(file)
+    targets = logging.StreamHandler(sys.stdout), logging.FileHandler(file, mode='w')
     logging.basicConfig(format='%(message)s', level=logging.INFO, handlers=targets)
 
     # Print results
@@ -93,10 +93,12 @@ def main(args):
             seq_miou += miou
         seq_miou /= len(sub_results)
         logging.info(f"    Sequence average: {seq_miou}")
-    logging.info()
-    logging.info("----- Grand averages -----")
+    logging.info("")
+    logging.info("----- Overall results -----")
     logging.info(f"mIOU: {grand_miou}")
     logging.info(f"mIOU for best instance per sequence: {best_miou}")
+
+    print(f"\nResults written to file {file}")
 
 if __name__ == '__main__':
     parser = ArgumentParser()
