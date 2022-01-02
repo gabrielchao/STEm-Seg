@@ -54,7 +54,7 @@ def get_subsequence_frames(seq_len, subseq_len, dataset_name, frame_overlap=-1):
 
 class TrackGenerator(object):
     def __init__(self, sequences, dataset_name, output_generator, output_dir, model_ckpt_path, max_tracks, preload_images,
-                 resize_scale, semseg_averaging_on_gpu, **kwargs):
+                 resize_scale, semseg_averaging_on_gpu, interaction_multiplier, **kwargs):
         self.sequences = sequences
         self.dataset_name = dataset_name
 
@@ -67,7 +67,8 @@ class TrackGenerator(object):
             semseg_output_type = None
 
         self.model = InferenceModel(model_ckpt_path, semseg_output_type=semseg_output_type, preload_images=preload_images,
-                                    resize_scale=resize_scale, semseg_generation_on_gpu=semseg_averaging_on_gpu).cuda()
+                                    resize_scale=resize_scale, semseg_generation_on_gpu=semseg_averaging_on_gpu,
+                                    interaction_multiplier=interaction_multiplier).cuda()
 
         self.resize_scale = resize_scale
         self.vis_output_dir = os.path.join(output_dir, "vis")
@@ -293,7 +294,8 @@ def main(args):
         preload_images=preload_images,
         resize_scale=output_resize_scale,
         semseg_averaging_on_gpu=semseg_averaging_on_gpu,
-        clustering_device=args.clustering_device
+        clustering_device=args.clustering_device,
+        interaction_multiplier=cfg.MODEL.SEEDINESS.INTERACTION_MULTIPLIER
     )
 
     track_generator.start(args.seqs)

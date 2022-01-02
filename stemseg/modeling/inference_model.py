@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 class InferenceModel(nn.Module):
     def __init__(self, restore_path=None, cpu_workers=4, preload_images=False, semseg_output_type="probs",
-                 resize_scale=1.0, semseg_generation_on_gpu=True):
+                 resize_scale=1.0, semseg_generation_on_gpu=True, interaction_multiplier=1.0):
         super().__init__()
 
         with torch.no_grad():
@@ -39,6 +39,7 @@ class InferenceModel(nn.Module):
         self.semseg_output_type = semseg_output_type
         self.resize_scale = resize_scale
         self.semseg_generation_on_gpu = semseg_generation_on_gpu
+        self.interaction_multiplier = interaction_multiplier
 
         self.eval()
 
@@ -184,6 +185,10 @@ class InferenceModel(nn.Module):
 
                 subseq_seediness_dict = {t: subseq_seediness[:, i] for i, t in enumerate(current_subseq_as_list)}
                 subseq_seediness = torch.stack([subseq_seediness_dict[t] for t in sorted(current_subseq.keys())], 1)
+            
+            # give interactions more weight in deciding seediness
+            if interactive_sequence:
+                subseq_seediness = subseq_seediness * (self.interaction_multiplier * interactions + 1)
 
             embeddings_maps.append(self.EmbeddingMapEntry(
                 sorted(current_subseq.keys()), subseq_embeddings.cpu(), subseq_bandwidths.cpu(), subseq_seediness.cpu()))
