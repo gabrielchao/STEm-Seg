@@ -1,3 +1,5 @@
+import logging
+import sys
 import os
 import numpy as np
 from PIL import Image
@@ -41,9 +43,7 @@ def main(args):
     # Load ground truth masks for all predicted sequences
     all_gt = dict() # dict(str -> list(list(ndarray) (length I)) (length T))
     print("Loading ground truth masks...")
-    for seq_id in tqdm(sorted(os.listdir(args.results_dir))):
-        if not os.path.isdir(os.path.join(args.results_dir, seq_id)):
-            continue
+    for seq_id in tqdm(list(filter(lambda p: os.path.isdir(os.path.join(args.results_dir, p)), sorted(os.listdir(args.results_dir))))):
         oid, iid = InteractiveVideoSequence.parse_split_id(seq_id)
         ori_seq = get_sequence(sequences, oid)
         assert ori_seq is not None, f"Could not find ground truth sequence {oid} for prediction {seq_id}"
@@ -53,7 +53,7 @@ def main(args):
     # Perform mIOU computation for each sequence
     results = dict() # dict(str -> dict(int -> int) (length I)) (length N)
     print("Loading predictions and computing jaccard indices...")
-    for seq_id in tqdm(sorted(os.listdir(args.results_dir))):
+    for seq_id in tqdm(list(filter(lambda p: os.path.isdir(os.path.join(args.results_dir, p)), sorted(os.listdir(args.results_dir))))):
         oid, iid = InteractiveVideoSequence.parse_split_id(seq_id)
         pred_paths = sorted([os.path.join(args.results_dir, seq_id, name) for name in os.listdir(os.path.join(args.results_dir, seq_id))])
         y_pred = load_preds_as_np(pred_paths)
@@ -78,25 +78,31 @@ def main(args):
     grand_miou = summed_miou / num_instances
     best_miou = summed_best_miou / len(results)
 
+    # Set up logging to both console and file
+    file = os.path.join((args.output_dir if args.output_dir else args.results_dir), 'metrics.txt')
+    targets = logging.StreamHandler(sys.stdout), logging.FileHandler(file)
+    logging.basicConfig(format='%(message)s', level=logging.INFO, handlers=targets)
+
     # Print results
-    print("----- Sequence result breakdown -----")
+    logging.info("----- Sequence result breakdown -----")
     for oid, sub_results in results.items():
-        print(oid)
+        logging.info(oid)
         seq_miou = 0
         for iid, miou in sub_results.items():
-            print(f"    {iid}: {miou}")
+            logging.info(f"    {iid}: {miou}")
             seq_miou += miou
         seq_miou /= len(sub_results)
-        print(f"    Sequence average: {seq_miou}")
-    print()
-    print("----- Grand averages -----")
-    print(f"mIOU: {grand_miou}")
-    print(f"mIOU for best instance per sequence: {best_miou}")
+        logging.info(f"    Sequence average: {seq_miou}")
+    logging.info()
+    logging.info("----- Grand averages -----")
+    logging.info(f"mIOU: {grand_miou}")
+    logging.info(f"mIOU for best instance per sequence: {best_miou}")
 
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('results_dir')
 
     parser.add_argument('--dataset',    '-d',              required=True)
+    parser.add_argument('--output_dir',                    required=False)
 
     main(parser.parse_args())
