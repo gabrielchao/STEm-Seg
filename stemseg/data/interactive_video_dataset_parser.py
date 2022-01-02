@@ -4,6 +4,7 @@ import cv2
 import json
 import numpy as np
 import os
+from parse import parse
 from copy import deepcopy
 
 from stemseg.data.generic_video_dataset_parser import GenericVideoSequence
@@ -166,6 +167,26 @@ class InteractiveVideoSequence(GenericVideoSequence):
         """
         return len(self.guidance_paths)
     
+    @property
+    def original_id(self):
+        """
+        The canonical name of this sequence in the original dataset.
+        """
+        if self.is_split:
+            return InteractiveVideoSequence.parse_split_id(self.id)[0]
+        else:
+            return self.id
+    
+    @property
+    def instance_id(self):
+        """
+        The id of single instance this sequence contains guidance for if split, None otherwise.
+        """
+        if self.is_split:
+            return InteractiveVideoSequence.parse_split_id(self.id)[1]
+        else:
+            return None
+    
     def get_step_paths(self, frame_idx, instance_idx=None):
         """
         Get a image-guidance map path pair for a single time step.
@@ -260,6 +281,18 @@ class InteractiveVideoSequence(GenericVideoSequence):
             seq = self.__class__(seq_dict, self.base_dir, self.guidance_dir, True)
             sequences.append(seq)
         return sequences
+    
+    @staticmethod
+    def parse_split_id(split_id: str):
+        """
+        Parse an id split by split_by_guided_instances() back into its constituents
+        (original_id, instance_id).
+        :param split_id: str
+        :return tuple(str, int)
+        """
+        oid, iid = parse("{}_instance_{}", split_id)
+        iid = int(iid)
+        return oid, iid
     
     @staticmethod
     def split_list_by_guided_instances(sequences: list):

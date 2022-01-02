@@ -8,6 +8,7 @@ apex==0.9.10dev
 Pillow==8.3.2
 PyYAML==5.4
 tensorboardX==2.1
-davisinteractive
+davisinteractive==1.0.4
 bezier
 networkx
+parse
