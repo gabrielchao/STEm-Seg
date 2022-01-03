@@ -99,6 +99,7 @@ class InferenceModel(nn.Module):
         semseg_logits = [[0., 0] for _ in range(len(image_paths))]
         embeddings_maps = []
 
+        interaction_store = dict() # dict(int -> tensor(1, 1, 2, H, W))
         backbone_features = dict()
         current_subseq_idx = 0
 
@@ -126,6 +127,7 @@ class InferenceModel(nn.Module):
 
             if interactive_sequence:
                 backbone_features[frame_id] = self._model.run_backbone(images.cuda(), interactions.cuda())
+                interaction_store[frame_id] = interactions
             else:
                 backbone_features[frame_id] = self._model.run_backbone(images.cuda())
 
@@ -188,7 +190,14 @@ class InferenceModel(nn.Module):
             
             # give interactions more weight in deciding seediness
             if interactive_sequence:
-                subseq_seediness = subseq_seediness * (self.interaction_multiplier * interactions + 1)
+                subseq_interactions = [interaction_store[frame_id] for frame_id in current_subseq_as_list] # list(tensor(1, 1, 2, H, W)) (length T)
+                subseq_interactions = torch.cat(subseq_interactions, dim=1) # tensor(1, T, 2, H, W)
+                subseq_interactions = subseq_interactions.permute(0, 2, 1, 3, 4) # tensor(1, 2, T, H, W)
+                subseq_interactions = F.interpolate(
+                    subseq_interactions, scale_factor=(1.0, 0.25, 0.25), 
+                    mode='trilinear', align_corners=False)
+                subseq_interactions = subseq_interactions.permute(0, 2, 1, 3, 4) # tensor(1, T, 2, H, W)
+                subseq_seediness = subseq_seediness * (self.interaction_multiplier * subseq_interactions[:, :, 0, :, :].cuda() + 1) # tensor(1, T, H, W)
 
             embeddings_maps.append(self.EmbeddingMapEntry(
                 sorted(current_subseq.keys()), subseq_embeddings.cpu(), subseq_bandwidths.cpu(), subseq_seediness.cpu()))
