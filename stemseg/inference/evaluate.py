@@ -1,6 +1,5 @@
-import logging
-import sys
 import os
+import json
 import numpy as np
 from PIL import Image
 from argparse import ArgumentParser
@@ -51,7 +50,7 @@ def main(args):
             all_gt[oid] = ori_seq.load_masks()
     
     # Perform mIOU computation for each sequence
-    results = dict() # dict(str -> dict(int -> int) (length I)) (length N)
+    results = dict() # dict(str -> dict('instances' -> dict(int -> float) (length I), 'average' -> float) (length N)
     print("Loading predictions and computing jaccard indices...")
     for seq_id in tqdm(list(filter(lambda p: os.path.isdir(os.path.join(args.results_dir, p)), sorted(os.listdir(args.results_dir))))):
         oid, iid = InteractiveVideoSequence.parse_split_id(seq_id)
@@ -60,16 +59,22 @@ def main(args):
         y_true = get_instance_gt(all_gt, oid, iid)
         scores = batched_jaccard(y_true, y_pred, False, 1)
         miou = np.mean(scores)
-        sub_results = results.setdefault(oid, dict())
-        sub_results[iid] = miou
+        seq_results = results.setdefault(oid, dict())
+        instances_results = seq_results.setdefault('instances', dict())
+        instances_results[iid] = miou
+    
+    # Compute per-sequence averages
+    for seq_results in results.values():
+        seq_miou = sum(seq_results['instances'].values()) / len(seq_results['instances'])
+        seq_results['average'] = seq_miou
     
     # Get grand mean mIOU across all sequences
     num_instances = 0
     summed_miou = 0
     summed_best_miou = 0
-    for sub_results in results.values():
+    for seq_results in results.values():
         best = 0
-        for miou in sub_results.values():
+        for miou in seq_results['instances'].values():
             if miou > best:
                 best = miou
             summed_miou += miou
@@ -78,26 +83,27 @@ def main(args):
     grand_miou = summed_miou / num_instances
     best_miou = summed_best_miou / len(results)
 
-    # Set up logging to both console and file
-    file = os.path.join((args.output_dir if args.output_dir else args.results_dir), 'metrics.txt')
-    targets = logging.StreamHandler(sys.stdout), logging.FileHandler(file, mode='w')
-    logging.basicConfig(format='%(message)s', level=logging.INFO, handlers=targets)
-
     # Print results
-    logging.info("----- Sequence result breakdown -----")
-    for oid, sub_results in results.items():
-        logging.info(oid)
-        seq_miou = 0
-        for iid, miou in sub_results.items():
-            logging.info(f"    {iid}: {miou}")
-            seq_miou += miou
-        seq_miou /= len(sub_results)
-        logging.info(f"    Sequence average: {seq_miou}")
-    logging.info("")
-    logging.info("----- Overall results -----")
-    logging.info(f"mIOU: {grand_miou}")
-    logging.info(f"mIOU for best instance per sequence: {best_miou}")
+    print("----- Sequence result breakdown -----")
+    for oid, seq_results in results.items():
+        print(oid)
+        for iid, miou in seq_results['instances'].items():
+            print(f"    {iid}: {miou}")
+        print(f"    Sequence average: {seq_results['average']}")
+    print("")
+    print("----- Overall results -----")
+    print(f"mIOU: {grand_miou}")
+    print(f"mIOU for best instance per sequence: {best_miou}")
 
+    # Save to file
+    summary = {
+        'sequences': results,
+        'mIOU': grand_miou,
+        'mIOU_best_instance_per_sequence': best_miou
+    }
+    file = os.path.join((args.output_dir if args.output_dir else args.results_dir), 'metrics.json')
+    with open(file, 'w') as f:
+        json.dump(summary, f, indent=4)
     print(f"\nResults written to file {file}")
 
 if __name__ == '__main__':
