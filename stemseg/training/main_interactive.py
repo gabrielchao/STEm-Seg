@@ -205,7 +205,7 @@ class Trainer(object):
             
             # Collate data into batches where each sequence entry is associated with only a single instance
             sub_dataset = InteractiveDataset(image_seqs, targets)
-            sub_data_loader = create_interactive_data_loader(sub_dataset, batch_size, True)
+            sub_data_loader = create_interactive_data_loader(sub_dataset, batch_size, True, drop_last=True)
 
             for sub_image_seqs, sub_targets in sub_data_loader:
                 """
