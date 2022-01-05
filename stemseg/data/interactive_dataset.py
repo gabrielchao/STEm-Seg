@@ -74,12 +74,13 @@ def collate_interactive(batch):
     image_seqs = ImageList.from_image_sequence_list(sequence_list, original_image_sizes)
     return image_seqs, targets
 
-def create_interactive_data_loader(dataset: InteractiveDataset, batch_size, shuffle):
+def create_interactive_data_loader(dataset: InteractiveDataset, batch_size, shuffle, drop_last=False):
     return DataLoader(
         dataset,
         batch_size,
         shuffle,
-        collate_fn=collate_interactive
+        collate_fn=collate_interactive,
+        drop_last=drop_last
     )
 
 if __name__ == '__main__':
