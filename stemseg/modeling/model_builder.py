@@ -166,11 +166,13 @@ class TrainingModel(nn.Module):
         height, width = image_seqs.tensors.shape[-2:]
 
         if interaction_seqs is not None:
-            assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 5
+            full_channels = image_seqs.tensors.shape[2] + interaction_seqs.shape[2]
+            assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == full_channels, \
+                f"Expected {cfg.MODEL.RESNETS.STEM_IN_CHANNELS} input channels but got {full_channels}"
             # Concat RGB and guidance maps along the channels dimension
             full_tensor = torch.cat([image_seqs.tensors, interaction_seqs], dim=2)
             # View video frames as the 'batch' dimension
-            full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, 5, height, width)
+            full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, full_channels, height, width)
         else:
             full_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
 
@@ -303,7 +305,8 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
 
     info_to_print = [
         "Backbone type: {}".format(cfg.MODEL.BACKBONE.TYPE),
-        "Backbone frozen: {}".format("Yes" if cfg.TRAINING.FREEZE_BACKBONE else "No")
+        "Backbone frozen: {}".format("Yes" if cfg.TRAINING.FREEZE_BACKBONE else "No"),
+        "Backbone input channels: {}".format(cfg.MODEL.RESNETS.STEM_IN_CHANNELS)
     ]
 
     # restore pre-trained weights if possible.

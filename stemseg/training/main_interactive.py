@@ -221,7 +221,11 @@ class Trainer(object):
                 """
             
                 # Get clicks-for-all-frames
-                interaction_seqs = get_clicks_for_all_frames(sub_targets)
+                with_negative = (global_cfg.MODEL.RESNETS.STEM_IN_CHANNELS > 4)
+                if not with_negative:
+                    assert global_cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 4, \
+                        "Only 4 (only positive) or 5 (positive+negative) input channels are supported for the interactive model"
+                interaction_seqs = get_clicks_for_all_frames(sub_targets, with_negative)
 
                 model_output = self.model(
                     sub_image_seqs.to(device=self.local_device), 

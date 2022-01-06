@@ -1,4 +1,6 @@
 from collections import defaultdict, namedtuple
+
+from stemseg.config import cfg
 from stemseg.data import InferenceImageLoader
 from stemseg.data.inference_image_loader import collate_fn
 from stemseg.data.interactive_inference_loader import InteractiveInferenceLoader, collate_fn as interactive_collate_fn
@@ -119,6 +121,8 @@ class InferenceModel(nn.Module):
         for data in tqdm(image_loader, total=len(image_loader)):
             if interactive_sequence:
                 images, interactions, idxes = data
+                if cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 4:
+                    interactions = interactions[:, :, 0:1, :, :] # Remove negative channel
             else:
                 images, idxes = data
 
