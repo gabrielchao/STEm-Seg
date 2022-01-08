@@ -9,7 +9,10 @@ from stemseg.modeling.model_builder import build_model
 from stemseg.modeling.interactive_model import InteractiveModel
 from stemseg.utils import ModelPaths, RepoPaths
 from stemseg.utils import distributed as dist_utils
+from stemseg.utils import ModelOutputConsts, LossConsts
 from stemseg.utils.interaction.gen_interaction import get_clicks_for_all_frames
+from stemseg.utils.vis import overlay_mask_on_image
+from stemseg.structures import ImageList
 
 from stemseg.training.interrupt_detector import InterruptDetector, InterruptException
 from stemseg.training.model_output_manager import ModelOutputManager
@@ -19,6 +22,7 @@ from stemseg.training.utils import create_training_dataset, create_optimizer, cr
 
 import logging
 import os
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -265,6 +269,13 @@ class Trainer(object):
                     add_to_summary = self.elapsed_iterations % opts.summary_interval == 0
                     self.logger.add_training_point(self.elapsed_iterations, add_to_summary, **logging_vars)
 
+                    # Log high-loss images for debugging
+                    if logging_vars[LossConsts.LOVASZ_LOSS] >= 1.00:
+                        self.logger.add_images(
+                            str(logging_vars[LossConsts.LOVASZ_LOSS]),
+                            self.elapsed_iterations, 
+                            visualize_batch(sub_image_seqs, sub_targets))
+
                     if hasattr(self.lr_scheduler, "get_last_lr"):  # PyTorch versions > 1.5
                         logging_vars['lr'] = self.lr_scheduler.get_last_lr()[0]
                     else:
@@ -299,6 +310,22 @@ class Trainer(object):
             "Training complete\n"
             "Model(s) saved to: %s\n"
             "Log file(s) saved to: %s\n" % (self.model_save_dir, self.log_dir))
+
+
+def visualize_batch(image_seqs: ImageList, targets: dict):
+    """
+    Produce an array of images visualizing the first frame+target of each sequence in the batch.
+    :param image_seqs: ImageList
+    :param targets: dict
+    :return ndarray(N, 3, H, W)
+    """
+    visualizations = []
+    for n in range(image_seqs.num_seqs):
+        vis = overlay_mask_on_image(
+            image_seqs.tensors[n][0].detach().cpu().numpy() * 255, 
+            targets[n]['masks'].squeeze(0)[0].detach().cpu().numpy() * 255)
+        visualizations.append(vis)
+    return np.stack(visualizations, axis=0)
 
 
 def create_logger(args):

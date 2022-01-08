@@ -32,6 +32,15 @@ class TrainingLogger(object):
         if add_to_summary:
             for scalar_name, value in kwargs.items():
                 self.__writer.add_scalar('training_' + scalar_name, value, iteration_num)
+    
+    def add_images(self, iteration_num, tag, images):
+        """
+        Log the given images with Tensorboard.
+        :param iteration_num: int
+        :param tag: str
+        :param images: ndarray(N, 3, H, W) or tensor(N, 3, H, W)
+        """
+        self.__writer.add_images(f'{iteration_num}:{tag}', images, iteration_num)
 
     def add_validation_run_results(self, num_training_iterations, **kwargs):
         for scalar_name, value in kwargs.items():
