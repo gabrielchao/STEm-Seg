@@ -38,9 +38,9 @@ class TrainingLogger(object):
         Log the given images with Tensorboard.
         :param iteration_num: int
         :param tag: str
-        :param images: ndarray(N, 3, H, W) or tensor(N, 3, H, W)
+        :param images: ndarray(N, H, W, 3) or tensor(N, H, W, 3)
         """
-        self.__writer.add_images(f'{iteration_num}:{tag}', images, iteration_num)
+        self.__writer.add_images(f'{iteration_num}:{tag}', images, iteration_num, dataformats='NHWC')
 
     def add_validation_run_results(self, num_training_iterations, **kwargs):
         for scalar_name, value in kwargs.items():

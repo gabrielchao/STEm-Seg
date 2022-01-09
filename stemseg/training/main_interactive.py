@@ -223,6 +223,8 @@ class Trainer(object):
                     )
                 ) (length N)
                 """
+                # Save original images for debugging
+                original_images = [sub_image_seqs.tensors[n][0].detach().cpu().numpy() for n in range(sub_image_seqs.num_seqs)]
             
                 # Get clicks-for-all-frames
                 with_negative = (global_cfg.MODEL.RESNETS.STEM_IN_CHANNELS > 4)
@@ -272,9 +274,9 @@ class Trainer(object):
                     # Log high-loss images for debugging
                     if logging_vars[LossConsts.LOVASZ_LOSS] >= 1.00:
                         self.logger.add_images(
+                            self.elapsed_iterations,
                             str(logging_vars[LossConsts.LOVASZ_LOSS]),
-                            self.elapsed_iterations, 
-                            visualize_batch(sub_image_seqs, sub_targets))
+                            visualize_batch(original_images, sub_targets))
 
                     if hasattr(self.lr_scheduler, "get_last_lr"):  # PyTorch versions > 1.5
                         logging_vars['lr'] = self.lr_scheduler.get_last_lr()[0]
@@ -312,18 +314,20 @@ class Trainer(object):
             "Log file(s) saved to: %s\n" % (self.model_save_dir, self.log_dir))
 
 
-def visualize_batch(image_seqs: ImageList, targets: dict):
+def visualize_batch(images: list, targets: dict):
     """
     Produce an array of images visualizing the first frame+target of each sequence in the batch.
-    :param image_seqs: ImageList
+    :param images: list(ndarray(3, H, W))
     :param targets: dict
-    :return ndarray(N, 3, H, W)
+    :return ndarray(N, H, W, 3)
     """
     visualizations = []
-    for n in range(image_seqs.num_seqs):
-        vis = overlay_mask_on_image(
-            image_seqs.tensors[n][0].detach().cpu().numpy() * 255, 
-            targets[n]['masks'].squeeze(0)[0].detach().cpu().numpy() * 255)
+    for n, image in enumerate(images):
+        image = image.transpose(1, 2, 0) # (C, H, W) to (H, W, C)
+        image = (image * global_cfg.INPUT.IMAGE_STD + global_cfg.INPUT.IMAGE_MEAN)
+        image = np.flip(image, axis=2) # BGR to RGB
+        target = targets[n]['masks'].squeeze(0)[0].detach().cpu().numpy() * 255
+        vis = overlay_mask_on_image(image, target)
         visualizations.append(vis)
     return np.stack(visualizations, axis=0)
 
