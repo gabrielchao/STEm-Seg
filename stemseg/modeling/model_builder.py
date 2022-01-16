@@ -319,7 +319,7 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
                 # Add guidance map channels
                 print_fn(f"Adapting backbone to {cfg.MODEL.RESNETS.STEM_IN_CHANNELS} input channels")
                 add_in_channels(restore_dict, cfg.MODEL.RESNETS.STEM_IN_CHANNELS)
-            backbone.load_state_dict(restore_dict, strict=True)
+            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for LateFusion module
         else:
             raise ValueError("Could not find pre-trained backbone weights file at expected location: '{}'".format(
                 pretrained_wts_file))
