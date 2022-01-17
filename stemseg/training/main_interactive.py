@@ -271,13 +271,6 @@ class Trainer(object):
                     add_to_summary = self.elapsed_iterations % opts.summary_interval == 0
                     self.logger.add_training_point(self.elapsed_iterations, add_to_summary, **logging_vars)
 
-                    # Log high-loss images for debugging
-                    if logging_vars[LossConsts.LOVASZ_LOSS] >= 1.00:
-                        self.logger.add_images(
-                            self.elapsed_iterations,
-                            str(logging_vars[LossConsts.LOVASZ_LOSS]),
-                            visualize_batch(original_images, sub_targets))
-
                     if hasattr(self.lr_scheduler, "get_last_lr"):  # PyTorch versions > 1.5
                         logging_vars['lr'] = self.lr_scheduler.get_last_lr()[0]
                     else:
@@ -298,6 +291,13 @@ class Trainer(object):
 
                 if self.elapsed_iterations % opts.save_interval == 0:
                     if self.is_main_process:
+                        # Log high-loss images for debugging
+                        if logging_vars[LossConsts.LOVASZ_LOSS] >= 1.00:
+                            self.logger.add_images(
+                                self.elapsed_iterations,
+                                str(logging_vars[LossConsts.LOVASZ_LOSS]),
+                                visualize_batch(original_images, sub_targets))
+                                
                         # remove outdated checkpoints
                         checkpoints = sorted(glob(os.path.join(self.model_save_dir, '%06d.pth')))
                         if len(checkpoints) > opts.ckpts_to_keep:
