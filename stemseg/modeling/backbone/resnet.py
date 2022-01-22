@@ -353,4 +353,5 @@ class StemWithFixedBatchNorm(BaseStem):
 _STAGE_SPECS = {
     "R-50-FPN": ResNet50FPNStagesTo5,
     "R-101-FPN": ResNet101FPNStagesTo5,
+    "LATE-FUSION": ResNet101FPNStagesTo5,
 }

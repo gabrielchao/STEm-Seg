@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 from torch import nn
 
@@ -26,15 +27,24 @@ class LateFusion(nn.Module):
     def forward(self, guidance_maps, feature_maps):
         """
         Arguments:
-            guidance_maps (tensor): 
-            feature_maps (list): 
+            guidance_maps (Tensor): B x C x H x W
+            feature_maps (list(Tensor)): feature maps from the ResNet for each feature level.
+        Returns:
+            feature_maps (list): fused feature maps for each feature level.
         """
         
         g_map_4x = self.block_4x(guidance_maps)
         g_map_8x = self.block_8x(g_map_4x)
         g_map_16x = self.block_16x(g_map_8x)
         g_map_32x = self.block_32x(g_map_16x)
-    
+        guidance_maps = [g_map_4x, g_map_8x, g_map_16x, g_map_32x]
+        assert len(guidance_maps) == len(feature_maps)
+        
+        for i in range(len(feature_maps)):
+            feature_maps[i] = torch.cat([feature_maps[i], guidance_maps[i]])
+        
+        return feature_maps
+
 
 class SEBasicBlock(nn.Module):
     """
