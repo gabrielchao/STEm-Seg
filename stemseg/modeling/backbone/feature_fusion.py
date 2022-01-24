@@ -17,12 +17,18 @@ class LateFusion(nn.Module):
                 will be fed
             inter_channels (int): number of intermediate channels for the guidance maps
         """
+        super(LateFusion, self).__init__()
+
         self.feature_channels_list = feature_channels_list
 
-        self.block_4x = SEBasicBlock(guidance_channels, inter_channels, stride=4)
-        self.block_8x = SEBasicBlock(inter_channels, inter_channels, stride=2)
-        self.block_16x = SEBasicBlock(inter_channels, inter_channels, stride=2)
-        self.block_32x = SEBasicBlock(inter_channels, inter_channels, stride=2)
+        self.block_4x = SEBasicBlock(guidance_channels, inter_channels, stride=4, 
+                                downsample=conv1x1(guidance_channels, inter_channels, stride=4))
+        self.block_8x = SEBasicBlock(inter_channels, inter_channels, stride=2, 
+                                downsample=conv1x1(inter_channels, inter_channels, stride=2))
+        self.block_16x = SEBasicBlock(inter_channels, inter_channels, stride=2,
+                                downsample=conv1x1(inter_channels, inter_channels, stride=2))
+        self.block_32x = SEBasicBlock(inter_channels, inter_channels, stride=2,
+                                downsample=conv1x1(inter_channels, inter_channels, stride=2))
 
     def forward(self, guidance_maps, feature_maps):
         """
@@ -66,7 +72,7 @@ class SEBasicBlock(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(inplanes, planes)
+        self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
@@ -110,7 +116,7 @@ class SE_Block(nn.Module):
         )
 
     def forward(self, x):
-        b, c, _, _ = x.size()
+        b, c, _, _ = x.shape
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
@@ -123,3 +129,7 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     
     # return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
     #                  padding=dilation, groups=groups, bias=False, dilation=dilation)
+
+def conv1x1(in_planes, out_planes, stride=1, dilation=1):
+    return conv_with_kaiming_uniform(False, False)(in_planes, out_planes,
+                    kernel_size=1, stride=stride, dilation=dilation)

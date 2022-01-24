@@ -277,19 +277,6 @@ class TrainingModel(nn.Module):
 
         return embedding_map, bandwidth_map, seediness_map
 
-def add_in_channels(restore_dict: dict, in_channels: int):
-    """
-    Add additional input channels to the end of the first layer of the given state dict.
-    :param restore_dict: Model state dict
-    :param in_channels: Total number of input channels in the updated dict
-    """
-    name = 'body.stem.conv1.weight'
-    assert restore_dict[name].shape == (64, 3, 7, 7)
-    assert in_channels > 3
-    extra_channels = in_channels - restore_dict[name].shape[1]
-    pads = torch.zeros((64, extra_channels, 7, 7), dtype=restore_dict[name].dtype, device=restore_dict[name].device)
-    nn.init.kaiming_uniform_(pads, a=1)
-    restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
 
 def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
     print_fn = logger.info if logger is not None else print
@@ -315,11 +302,8 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
         print_fn("Restoring backbone weights from '{}'".format(pretrained_wts_file))
         if os.path.exists(pretrained_wts_file):
             restore_dict = torch.load(pretrained_wts_file)
-            if cfg.MODEL.RESNETS.STEM_IN_CHANNELS != 3:
-                # Add guidance map channels
-                print_fn(f"Adapting backbone to {cfg.MODEL.RESNETS.STEM_IN_CHANNELS} input channels")
-                add_in_channels(restore_dict, cfg.MODEL.RESNETS.STEM_IN_CHANNELS)
-            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for LateFusion module
+            backbone.adapt_state_dict(restore_dict, print_fn) # Add guidance map / FPN channels
+            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for new LateFusion module
         else:
             raise ValueError("Could not find pre-trained backbone weights file at expected location: '{}'".format(
                 pretrained_wts_file))

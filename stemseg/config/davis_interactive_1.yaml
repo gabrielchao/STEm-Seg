@@ -8,6 +8,7 @@ MODEL:
   USE_SEEDINESS_HEAD: true
   USE_SEMSEG_HEAD: false
   BACKBONE:
+    TYPE: "MULTI-FUSION"
     FREEZE_AT_STAGE: -1 # Don't freeze
   RESNETS:
     STEM_IN_CHANNELS: 4 # RGB + positive
