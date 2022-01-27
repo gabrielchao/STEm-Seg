@@ -47,7 +47,7 @@ class LateFusion(nn.Module):
         assert len(guidance_maps) == len(feature_maps)
         
         for i in range(len(feature_maps)):
-            feature_maps[i] = torch.cat([feature_maps[i], guidance_maps[i]])
+            feature_maps[i] = torch.cat([feature_maps[i], guidance_maps[i]], 1)
         
         return feature_maps
 
