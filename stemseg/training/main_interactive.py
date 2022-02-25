@@ -18,7 +18,7 @@ from stemseg.training.interrupt_detector import InterruptDetector, InterruptExce
 from stemseg.training.model_output_manager import ModelOutputManager
 from stemseg.training.training_logger import TrainingLogger
 from stemseg.training.utils import create_training_dataset, create_optimizer, create_lr_scheduler, var_keys_to_str, \
-    create_training_data_loader, register_log_level_type
+    create_training_data_loader, register_log_level_type, create_debug_dataset
 
 import logging
 import os
@@ -143,7 +143,8 @@ class Trainer(object):
         batch_size = self.cfg.BATCH_SIZE
         accumulate_gradients = self.cfg.ACCUMULATE_GRADIENTS
 
-        dataset = create_training_dataset(self.total_iterations * batch_size, print_fn=self.console_logger.info)
+        # dataset = create_training_dataset(self.total_iterations * batch_size, print_fn=self.console_logger.info)
+        dataset = create_debug_dataset()
 
         if accumulate_gradients:
             assert batch_size >= self.num_gpus, "Batch size ({}) must be >= number of GPUs ({})".format(

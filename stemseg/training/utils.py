@@ -250,3 +250,12 @@ def create_training_data_loader(dataset, batch_size, shuffle, collate_fn=None, n
                       collate_fn=collate_fn,
                       batch_sampler=batch_sampler,
                       num_workers=num_workers)
+
+
+def create_debug_dataset():
+    return DavisDataLoader(
+        DavisPaths.trainval_base_dir(), DavisPaths.debug_vds_file(),
+        samples_to_create=10000,
+        single_instance_duplication=True,
+        background_as_ignore_region=True
+    )
