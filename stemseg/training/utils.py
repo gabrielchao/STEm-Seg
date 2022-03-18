@@ -204,6 +204,10 @@ def create_optimizer(model, cfg, print_fn=None):
         optimizer = torch.optim.Adam(
             model.parameters(), cfg.INITIAL_LR, weight_decay=cfg.WEIGHT_DECAY)
         print_fn("Using Adam optimizer with weight decay {}".format(cfg.WEIGHT_DECAY))
+    elif cfg.OPTIMIZER.lower() == "nadam":
+        optimizer = torch.optim.NAdam(
+            model.parameters(), cfg.INITIAL_LR, weight_decay=cfg.WEIGHT_DECAY)
+        print_fn("Using NAdam optimizer with weight decay {}".format(cfg.WEIGHT_DECAY))
     else:
         raise ValueError("Invalid optimizer choice: '{}'".format(cfg.OPTIMIZER))
 

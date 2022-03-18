@@ -93,7 +93,10 @@ class Trainer(object):
             self.restore_session(torch.load(args.restore_session, map_location=self.local_device))
         elif args.initial_ckpt:
             self.console_logger.info("Loading model weights from checkpoint at: {}".format(args.initial_ckpt))
-            self._model.load_state_dict(torch.load(args.initial_ckpt, map_location=self.local_device)['model'])
+            restore_dict = torch.load(args.initial_ckpt, map_location=self.local_device)['model']
+            self._model.adapt_state_dict(restore_dict)
+            self._model.load_state_dict(restore_dict, strict=False)
+            # strict off to allow for loading vanilla STem-Seg from davis.pth
 
     @property
     def _model(self):
@@ -143,8 +146,7 @@ class Trainer(object):
         batch_size = self.cfg.BATCH_SIZE
         accumulate_gradients = self.cfg.ACCUMULATE_GRADIENTS
 
-        # dataset = create_training_dataset(self.total_iterations * batch_size, print_fn=self.console_logger.info)
-        dataset = create_debug_dataset()
+        dataset = create_training_dataset(self.total_iterations * batch_size, print_fn=self.console_logger.info)
 
         if accumulate_gradients:
             assert batch_size >= self.num_gpus, "Batch size ({}) must be >= number of GPUs ({})".format(

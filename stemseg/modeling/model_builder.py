@@ -277,6 +277,12 @@ class TrainingModel(nn.Module):
 
         return embedding_map, bandwidth_map, seediness_map
 
+    def adapt_state_dict(self, restore_dict, print_fn=None):
+        """
+        Adapt a vanilla STEm-Seg state dict to the current version
+        """
+        self.backbone.adapt_state_dict(restore_dict, print_fn, 'backbone.')
+
 
 def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
     print_fn = logger.info if logger is not None else print

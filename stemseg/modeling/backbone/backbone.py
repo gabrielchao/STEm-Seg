@@ -35,14 +35,15 @@ def add_conv_channels(restore_dict: dict, name: str, original_channels: int, new
     nn.init.kaiming_uniform_(pads, a=1)
     restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
 
-def add_stem_in_channels(restore_dict: dict, in_channels: int):
+def add_stem_in_channels(restore_dict: dict, in_channels: int, prefix=''):
     """
     Add additional input channels to the end of the first layer of the given state dict.
     :param restore_dict: Model state dict
     :param in_channels: Total number of input channels in the updated dict
+    :param prefix: Prefix to account for before layer names
     """
     # Original shape: (64, 3, 7, 7)
-    add_conv_channels(restore_dict, 'body.stem.conv1.weight', 3, in_channels)
+    add_conv_channels(restore_dict, prefix + 'body.stem.conv1.weight', 3, in_channels)
 
 
 class ResnetFPNBackbone(nn.Module):
@@ -76,11 +77,11 @@ class ResnetFPNBackbone(nn.Module):
         x = self.fpn(x)
         return x
     
-    def adapt_state_dict(self, restore_dict: dict, print_fn=None):
+    def adapt_state_dict(self, restore_dict: dict, print_fn=None, prefix=''):
         if self.in_channels > 3:
             if print_fn:
                 print_fn(f"Adapting backbone to {self.in_channels} input channels")
-            add_stem_in_channels(restore_dict, self.in_channels)
+            add_stem_in_channels(restore_dict, self.in_channels, prefix)
         return restore_dict
 
 
@@ -138,17 +139,17 @@ class MultiStageFusionBackbone(nn.Module):
         x = self.fpn(x)
         return x
     
-    def adapt_state_dict(self, restore_dict: dict, print_fn=None):
+    def adapt_state_dict(self, restore_dict: dict, print_fn=None, prefix=''):
         if self.in_channels > 3:
             if print_fn:
                 print_fn(f"Adapting backbone to {self.in_channels} input channels")
-            add_stem_in_channels(restore_dict, self.in_channels)
+            add_stem_in_channels(restore_dict, self.in_channels, prefix)
 
         # Add FPN channels
         if print_fn:
             print_fn(f"Adapting FPN to {self.fused_feature_channels_list} channels")
         names = ['fpn.fpn_inner1.weight', 'fpn.fpn_inner2.weight', 'fpn.fpn_inner3.weight', 'fpn.fpn_inner4.weight']
         for name, original_channels, new_channels in zip(names, self.feature_channels_list, self.fused_feature_channels_list):
-            add_conv_channels(restore_dict, name, original_channels, new_channels)
+            add_conv_channels(restore_dict, prefix + name, original_channels, new_channels)
 
         return restore_dict
