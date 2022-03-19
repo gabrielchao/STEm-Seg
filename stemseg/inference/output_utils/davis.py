@@ -29,12 +29,14 @@ def compute_pixel_box_area_ratio(mask):
 
 
 class DavisOutputGenerator(object):
-    def __init__(self, output_dir, outlier_label, save_visualization, *args, **kwargs):
+    def __init__(self, output_dir, outlier_label, save_visualization, save_seediness, *args, **kwargs):
         self.results_output_dir = os.path.join(output_dir, "results")
         self.vis_output_dir = os.path.join(output_dir, "vis")
+        self.seediness_output_dir = os.path.join(output_dir, "seediness")
 
         self.outlier_label = outlier_label
         self.save_visualization = save_visualization
+        self.save_seediness = save_seediness
         self.upscaled_inputs = kwargs.get("upscaled_inputs")
 
     @Timer.exclude_duration("postprocessing")
@@ -127,15 +129,19 @@ class DavisOutputGenerator(object):
         for t, mask in enumerate(masks):
             mask.save(os.path.join(seq_results_dir, "{:05d}.png".format(t)))
 
-        if not self.save_visualization:
-            return instances_to_keep, dict()
+        if self.save_visualization:
+            seq_vis_dir = os.path.join(self.vis_output_dir, sequence.id)
+            os.makedirs(seq_vis_dir, exist_ok=True)
 
-        seq_vis_dir = os.path.join(self.vis_output_dir, sequence.id)
-        os.makedirs(seq_vis_dir, exist_ok=True)
+            overlayed_images = self.overlay_masks_on_images(sequence, masks)
+            for t, overlayed_image in enumerate(overlayed_images):
+                cv2.imwrite(os.path.join(seq_vis_dir, "{:05d}.jpg".format(t)), overlayed_image)
+        
+        if self.save_seediness:
+            seq_seed_dir = os.path.join(self.seediness_output_dir, sequence.id)
+            os.makedirs(seq_seed_dir, exist_ok=True)
 
-        overlayed_images = self.overlay_masks_on_images(sequence, masks)
-        for t, overlayed_image in enumerate(overlayed_images):
-            cv2.imwrite(os.path.join(seq_vis_dir, "{:05d}.jpg".format(t)), overlayed_image)
+            # TODO: save seediness maps
 
         return instances_to_keep, dict()
 

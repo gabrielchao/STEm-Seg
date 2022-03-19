@@ -7,6 +7,7 @@ INPUT:
   BGR_INPUT: True
   NUM_FRAMES: 8
   NUM_CLASSES: 2  # including background
+  GUIDANCE_GAUSSIAN_SIZE: 10
 TRAINING:
   MODE: ""
   LOSS_AT_FULL_RES: False

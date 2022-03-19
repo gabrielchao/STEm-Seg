@@ -254,13 +254,13 @@ def main(args):
 
     if args.dataset == "davis":
         sequences, _ = parse_generic_video_dataset(DavisPaths.trainval_base_dir(), DavisPaths.val_vds_file())
-        output_generator = DavisOutputGenerator(output_dir, OnlineChainer.OUTLIER_LABEL, args.save_vis,
+        output_generator = DavisOutputGenerator(output_dir, OnlineChainer.OUTLIER_LABEL, args.save_vis, args.save_seed,
                                                 upscaled_inputs=cluster_full_scale)
         max_tracks = cfg.DATA.DAVIS.MAX_INFERENCE_TRACKS
     
     elif args.dataset == "davis_interactive":
         sequences, _ = parse_interactive_video_dataset(DavisPaths.trainval_base_dir(), DavisPaths.val_vds_file(), args.guidance_dir)
-        output_generator = DavisOutputGenerator(output_dir, OnlineChainer.OUTLIER_LABEL, args.save_vis,
+        output_generator = DavisOutputGenerator(output_dir, OnlineChainer.OUTLIER_LABEL, args.save_vis, args.save_seed,
                                                 upscaled_inputs=cluster_full_scale)
         max_tracks = 1
         sequences = InteractiveVideoSequence.split_list_by_guided_instances(sequences)
@@ -324,5 +324,6 @@ if __name__ == '__main__':
     parser.add_argument('--clustering_device', default="cuda:0")
 
     parser.add_argument('--save_vis',      action='store_true')
+    parser.add_argument('--save_seed',     action='store_true')
 
     main(parser.parse_args())
