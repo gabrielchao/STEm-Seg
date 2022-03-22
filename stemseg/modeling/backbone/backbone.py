@@ -9,7 +9,7 @@ from torch import nn
 from stemseg.modeling.backbone.make_layers import conv_with_kaiming_uniform
 from stemseg.modeling.backbone import fpn as fpn_module
 from stemseg.modeling.backbone import resnet
-from stemseg.modeling.backbone.feature_fusion import LateFusion
+from stemseg.modeling.backbone.feature_fusion import GuidanceEncoder
 
 
 def build_resnet_fpn_backbone(cfg):
@@ -73,9 +73,17 @@ class ResnetFPNBackbone(nn.Module):
         self.is_3d = False
     
     def forward(self, x):
+        """
+        Arguments:
+            x (Tensor): B x C x H x W tensor containing RGB images.
+        Returns:
+            results (dict): {
+                'features': Feature maps after FPN layers. They are ordered from highest resolution first.
+            }
+        """
         x = self.body(x)
         x = self.fpn(x)
-        return x
+        return {'features': x}
     
     def adapt_state_dict(self, restore_dict: dict, print_fn=None, prefix=''):
         if self.in_channels > 3:
@@ -108,7 +116,7 @@ class MultiStageFusionBackbone(nn.Module):
         # Initialize guidance fusion module
         guidance_channels = cfg.MODEL.RESNETS.STEM_IN_CHANNELS - 3
         guidance_inter_channels = cfg.MODEL.FUSION.GUIDANCE_INTER_CHANNELS
-        self.fusion = LateFusion(guidance_channels, self.feature_channels_list, guidance_inter_channels)
+        self.guidance_encoder = GuidanceEncoder(guidance_channels, self.feature_channels_list, guidance_inter_channels)
         self.fused_feature_channels_list = [channels + guidance_inter_channels for channels in self.feature_channels_list]
 
         # Initialize FPN
@@ -129,15 +137,23 @@ class MultiStageFusionBackbone(nn.Module):
             full_tensor (Tensor): B x C x H x W tensor containing RGB and guidance maps concatenated
                 in the channels dimension.
         Returns:
-            results (tuple[Tensor]): feature maps after FPN layers.
-                They are ordered from highest resolution first.
+            results (dict): {
+                'features': tuple[Tensor]. Feature maps after FPN layers. They are ordered from highest resolution first.
+                'guidance': list[Tensor]. Multi-scale guidance maps after the guidance encoder.
+            }
         """
         guidance_tensor = full_tensor[:, 3:, :, :]
 
         feature_maps = self.body(full_tensor)
-        x = self.fusion(guidance_tensor, feature_maps) # fused maps
-        x = self.fpn(x)
-        return x
+        guidance_maps = self.guidance_encoder(guidance_tensor) # fused maps
+        assert len(feature_maps) == len(guidance_maps)
+        
+        # Perform late fusion on feature and guidance maps
+        for i in range(len(feature_maps)):
+            feature_maps[i] = torch.cat([feature_maps[i], guidance_maps[i]], 1)
+
+        feature_maps = self.fpn(feature_maps)
+        return {'features': feature_maps, 'guidance': guidance_maps}
     
     def adapt_state_dict(self, restore_dict: dict, print_fn=None, prefix=''):
         if self.in_channels > 3:

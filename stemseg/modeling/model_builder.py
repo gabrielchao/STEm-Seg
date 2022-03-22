@@ -108,9 +108,17 @@ class TrainingModel(nn.Module):
 
         num_seqs = image_seqs.num_seqs
         num_frames = image_seqs.num_frames
-        features = self.run_backbone(image_seqs, interaction_seqs)
+        backbone_output = self.run_backbone(image_seqs, interaction_seqs)
+        features = backbone_output['features']
 
-        embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames)
+        if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+            assert cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION', \
+                "Seediness head type is fusion decoder, but backbone type is not multi-fusion. \
+                The two must be used together."
+            guidance = backbone_output['guidance']
+            embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames, guidance=guidance)
+        else:
+            embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames)
 
         output = {
             ModelOutput.INFERENCE: {
@@ -161,7 +169,10 @@ class TrainingModel(nn.Module):
         Computes backbone features for a set of image sequences.
         :param image_seqs: Instance of ImageList
         :param interaction_seqs: tensor(N, T, 2, H, W)
-        :return: A dictionary of feature maps with keys denoting the scale.
+        :return: A results dictionary. {
+            'features': A dictionary of feature maps with keys denoting the scale.
+            'guidance': Only present in the multi-fusion backbone. A dictionary of guidance maps with keys denoting the scale.
+        }
         """
         height, width = image_seqs.tensors.shape[-2:]
 
@@ -178,13 +189,18 @@ class TrainingModel(nn.Module):
 
         if cfg.TRAINING.FREEZE_BACKBONE:
             with torch.no_grad():
-                features = self.backbone(full_tensor)
+                results = self.backbone(full_tensor)
         else:
-            features = self.backbone(full_tensor)
+            results = self.backbone(full_tensor)
+        
+        # Package results into OrderedDict
+        results['features'] = OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, results['features'])])
+        if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+            results['guidance'] = OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, results['guidance'])])
 
-        return OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, features)])
+        return results
 
-    def forward_embeddings_and_semseg(self, features, num_seqs, num_frames):
+    def forward_embeddings_and_semseg(self, features, num_seqs, num_frames, **kwargs):
         if self.semseg_head is None:
             semseg_logits = None
         else:
@@ -206,7 +222,15 @@ class TrainingModel(nn.Module):
                 self.restore_temporal_dimension(features[scale], num_seqs, num_frames, "NCTHW")
                 for scale in self.seediness_head_feature_map_scale
             ]
-            seediness_map = self.seediness_head(seediness_input_features)
+            if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+                guidance = kwargs['guidance']
+                seediness_input_guidance = [
+                    self.restore_temporal_dimension(guidance[scale], num_seqs, num_frames, "NCTHW")
+                    for scale in self.seediness_head_feature_map_scale
+                ]
+                seediness_map = self.seediness_head(seediness_input_features, seediness_input_guidance)
+            else:    
+                seediness_map = self.seediness_head(seediness_input_features)
 
             embeddings_map = torch.cat((embeddings_map, seediness_map), dim=1)
 
@@ -309,7 +333,7 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
         if os.path.exists(pretrained_wts_file):
             restore_dict = torch.load(pretrained_wts_file)
             backbone.adapt_state_dict(restore_dict, print_fn) # Add guidance map / FPN channels
-            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for new LateFusion module
+            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for new GuidanceEncoder module
         else:
             raise ValueError("Could not find pre-trained backbone weights file at expected location: '{}'".format(
                 pretrained_wts_file))
@@ -351,6 +375,7 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingM
         SeedinessHeadType = SEEDINESS_HEAD_REGISTRY[cfg.MODEL.SEEDINESS.HEAD_TYPE]
         seediness_head = SeedinessHeadType(
             backbone.out_channels, cfg.MODEL.SEEDINESS.INTER_CHANNELS,
+            guidance_channels=cfg.MODEL.FUSION.GUIDANCE_INTER_CHANNELS, # only used by FusionDecoder
             PoolType=POOLER_REGISTRY[cfg.MODEL.SEEDINESS.POOL_TYPE],
             NormType=NORM_REGISTRY[cfg.MODEL.SEEDINESS.NORMALIZATION_LAYER](cfg.MODEL.SEEDINESS.GN_NUM_GROUPS)
         )

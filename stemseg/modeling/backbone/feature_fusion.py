@@ -4,9 +4,9 @@ from torch import nn
 
 from stemseg.modeling.backbone.make_layers import conv_with_kaiming_uniform
 
-class LateFusion(nn.Module):
+class GuidanceEncoder(nn.Module):
     """
-    Module that fuses guidance maps with the multi-scale feature maps produced by the backbone.
+    Module that performs convolution on guidance maps at multiple scales.
     """
 
     def __init__(self, guidance_channels, feature_channels_list, inter_channels=256):
@@ -17,7 +17,7 @@ class LateFusion(nn.Module):
                 will be fed
             inter_channels (int): number of intermediate channels for the guidance maps
         """
-        super(LateFusion, self).__init__()
+        super(GuidanceEncoder, self).__init__()
 
         self.feature_channels_list = feature_channels_list
 
@@ -30,27 +30,20 @@ class LateFusion(nn.Module):
         self.block_32x = SEBasicBlock(inter_channels, inter_channels, stride=2,
                                 downsample=conv1x1(inter_channels, inter_channels, stride=2))
 
-    def forward(self, guidance_maps, feature_maps):
+    def forward(self, guidance_maps):
         """
         Arguments:
             guidance_maps (Tensor): B x C x H x W
-            feature_maps (list(Tensor)): feature maps from the ResNet for each feature level.
         Returns:
-            feature_maps (list): fused feature maps for each feature level.
+            guidance_maps (list): guidance maps for each feature level.
         """
         
         g_map_4x = self.block_4x(guidance_maps)
         g_map_8x = self.block_8x(g_map_4x)
         g_map_16x = self.block_16x(g_map_8x)
         g_map_32x = self.block_32x(g_map_16x)
-        guidance_maps = [g_map_4x, g_map_8x, g_map_16x, g_map_32x]
-        assert len(guidance_maps) == len(feature_maps)
         
-        for i in range(len(feature_maps)):
-            feature_maps[i] = torch.cat([feature_maps[i], guidance_maps[i]], 1)
-        
-        return feature_maps
-
+        return [g_map_4x, g_map_8x, g_map_16x, g_map_32x]
 
 class SEBasicBlock(nn.Module):
     """

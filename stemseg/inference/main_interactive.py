@@ -174,7 +174,7 @@ class TrackGenerator(object):
 
         self.output_generator.process_sequence(
             sequence, framewise_mask_idxes, track_labels, instance_pt_counts, instance_lifetimes, multiclass_masks,
-            fg_masks.shape[-2:], 4.0, max_tracks, device=self.clustering_device
+            fg_masks.shape[-2:], 4.0, max_tracks, fg_masks, device=self.clustering_device
         )
 
 

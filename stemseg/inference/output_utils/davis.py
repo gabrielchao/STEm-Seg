@@ -41,7 +41,7 @@ class DavisOutputGenerator(object):
 
     @Timer.exclude_duration("postprocessing")
     def process_sequence(self, sequence, track_mask_idxes, track_mask_labels, instance_pt_counts, instance_lifetimes,
-                         category_masks, mask_dims, mask_scale, max_tracks, device="cpu"):
+                         category_masks, mask_dims, mask_scale, max_tracks, fg_masks, device="cpu"):
         """
         Given a list of mask indices per frame, creates a sequence of masks for the entire sequence.
         :param sequence: instance of GenericVideoSequence
@@ -53,6 +53,7 @@ class DavisOutputGenerator(object):
         :param mask_dims: tuple(int, int) (height, width)
         :param mask_scale: int
         :param max_tracks: int
+        :param fg_masks: list(tensor)
         :param device: str
         :return: list(PIL.Image)
         """
@@ -141,7 +142,8 @@ class DavisOutputGenerator(object):
             seq_seed_dir = os.path.join(self.seediness_output_dir, sequence.id)
             os.makedirs(seq_seed_dir, exist_ok=True)
 
-            # TODO: save seediness maps
+            for t, mask in enumerate(fg_masks):
+                cv2.imwrite(os.path.join(seq_seed_dir, "{:05}.jpg".format(t)), mask.numpy()*255)
 
         return instances_to_keep, dict()
 
