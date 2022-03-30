@@ -1,4 +1,5 @@
 from collections import defaultdict, namedtuple
+from re import L
 
 from stemseg.config import cfg
 from stemseg.data import InferenceImageLoader
@@ -103,6 +104,7 @@ class InferenceModel(nn.Module):
 
         interaction_store = dict() # dict(int -> tensor(1, 1, 2, H, W))
         backbone_features = dict()
+        guidance_features = dict() # only produced by multi-fusion backbone and used by fusion seediness decoder
         current_subseq_idx = 0
 
         # to avoid recomputing features for the same frame again and again, we construct a dict to store the subseq
@@ -130,10 +132,13 @@ class InferenceModel(nn.Module):
             frame_id = idxes[0]
 
             if interactive_sequence:
-                backbone_features[frame_id] = self._model.run_backbone(images.cuda(), interactions.cuda())
+                results = self._model.run_backbone(images.cuda(), interactions.cuda())
+                backbone_features[frame_id] = results['features']
                 interaction_store[frame_id] = interactions
+                if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+                    guidance_features[frame_id] = results['guidance']
             else:
-                backbone_features[frame_id] = self._model.run_backbone(images.cuda())
+                backbone_features[frame_id] = self._model.run_backbone(images.cuda())['features']
 
             if frame_id in current_subseq:
                 current_subseq[frame_id] = True
@@ -144,6 +149,7 @@ class InferenceModel(nn.Module):
             # required feature maps have been generated. Stack the feature maps and run semseg, embedding and seediness
             # heads
             stacked_features = defaultdict(list)
+
             for t in current_subseq_as_list:
                 for scale, feature_map in backbone_features[t].items():
                     stacked_features[scale].append(feature_map)
@@ -151,6 +157,18 @@ class InferenceModel(nn.Module):
             stacked_features = {
                 scale: torch.stack(stacked_features[scale], 2) for scale in stacked_features
             }  # dict(tensor(1, C, T, H, W))
+
+            # likewise, perform stacking for guidance if applicable
+            stacked_guidance = defaultdict(list)
+
+            if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+                for t in current_subseq_as_list:
+                    for scale, guidance_map in guidance_features[t].items():
+                        stacked_guidance[scale].append(guidance_map)
+                
+                stacked_guidance = {
+                    scale: torch.stack(stacked_guidance[scale], 2) for scale in stacked_guidance
+                }
 
             if self.has_semseg_head:
                 semseg_input_features = [stacked_features[scale] for scale in self._model.semseg_feature_map_scale]
@@ -186,7 +204,16 @@ class InferenceModel(nn.Module):
                 seediness_input_features = [
                     stacked_features[scale] for scale in self._model.seediness_head_feature_map_scale
                 ]
-                subseq_seediness = self._model.seediness_head(seediness_input_features)
+
+                if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+                    assert cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION'
+                    seediness_input_guidance = [
+                        stacked_guidance[scale] for scale in self._model.seediness_head_feature_map_scale
+                    ]
+                    subseq_seediness = self._model.seediness_head(seediness_input_features, seediness_input_guidance)
+                else:
+                    subseq_seediness = self._model.seediness_head(seediness_input_features)
+
                 subseq_seediness = self.resize_output(subseq_seediness).squeeze(0)
 
                 subseq_seediness_dict = {t: subseq_seediness[:, i] for i, t in enumerate(current_subseq_as_list)}

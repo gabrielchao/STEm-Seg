@@ -116,7 +116,7 @@ class MultiStageFusionBackbone(nn.Module):
         # Initialize guidance fusion module
         guidance_channels = cfg.MODEL.RESNETS.STEM_IN_CHANNELS - 3
         guidance_inter_channels = cfg.MODEL.FUSION.GUIDANCE_INTER_CHANNELS
-        self.guidance_encoder = GuidanceEncoder(guidance_channels, self.feature_channels_list, guidance_inter_channels)
+        self.fusion = GuidanceEncoder(guidance_channels, self.feature_channels_list, guidance_inter_channels)
         self.fused_feature_channels_list = [channels + guidance_inter_channels for channels in self.feature_channels_list]
 
         # Initialize FPN
@@ -145,7 +145,7 @@ class MultiStageFusionBackbone(nn.Module):
         guidance_tensor = full_tensor[:, 3:, :, :]
 
         feature_maps = self.body(full_tensor)
-        guidance_maps = self.guidance_encoder(guidance_tensor) # fused maps
+        guidance_maps = self.fusion(guidance_tensor) # fused maps
         assert len(feature_maps) == len(guidance_maps)
         
         # Perform late fusion on feature and guidance maps
