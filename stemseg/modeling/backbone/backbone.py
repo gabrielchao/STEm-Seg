@@ -10,6 +10,7 @@ from stemseg.modeling.backbone.make_layers import conv_with_kaiming_uniform
 from stemseg.modeling.backbone import fpn as fpn_module
 from stemseg.modeling.backbone import resnet
 from stemseg.modeling.backbone.feature_fusion import GuidanceEncoder
+from stemseg.modeling.common import add_conv_channels
 
 
 def build_resnet_fpn_backbone(cfg):
@@ -17,23 +18,6 @@ def build_resnet_fpn_backbone(cfg):
 
 def build_multi_fusion_backbone(cfg):
     return MultiStageFusionBackbone(cfg)
-
-
-def add_conv_channels(restore_dict: dict, name: str, original_channels: int, new_channels: int):
-    """
-    Add additional input channels to the state dict for the layer with the specified name.
-    :param restore_dict: Model state dict
-    :param name: Name of the layer to be augmented
-    :param original_shape: Original shape of the target layer
-    :param new_shape: New shape of the target layer after augmentation
-    """
-    assert restore_dict[name].shape[1] == original_channels
-    assert new_channels > original_channels
-    out_channels, original_channels, height, width = restore_dict[name].shape
-    extra_channels = new_channels - original_channels
-    pads = pads = torch.zeros((out_channels, extra_channels, height, width), dtype=restore_dict[name].dtype, device=restore_dict[name].device)
-    nn.init.kaiming_uniform_(pads, a=1)
-    restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
 
 def add_stem_in_channels(restore_dict: dict, in_channels: int, prefix=''):
     """

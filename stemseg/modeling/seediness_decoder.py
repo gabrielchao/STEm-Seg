@@ -1,5 +1,5 @@
 from stemseg.modeling.common import UpsampleTrilinear3D, AtrousPyramid3D, get_pooling_layer_creator, \
-    get_temporal_scales
+    get_temporal_scales, add_conv_channels_3d
 from stemseg.utils.global_registry import GlobalRegistry
 
 import torch
@@ -110,6 +110,10 @@ class SqueezingExpandDecoder(nn.Module):
         x = self.conv_4(x)
 
         return self.conv_out(x).sigmoid()
+    
+    def adapt_state_dict(self, restore_dict: dict, print_fn=None):
+        # This is the original seediness head, nothing needs to be done.
+        pass
 
 
 @SEEDINESS_HEAD_REGISTRY.add("fusion_decoder")
@@ -188,6 +192,10 @@ class FusionDecoder(nn.Module):
 
         self.conv_out = nn.Conv3d(inter_channels[3], 1, kernel_size=1, padding=0, bias=False)
 
+        self.in_channels = in_channels
+        self.inter_channels = inter_channels
+        self.fused_channels = fused_channels
+
     def forward(self, features, guidance):
         """
         :param features: list of multiscale feature map tensors of shape [N, C, T, H, W]. For this implementation, there
@@ -226,3 +234,15 @@ class FusionDecoder(nn.Module):
         x = self.conv_4(x)
 
         return self.conv_out(x).sigmoid()
+
+    def adapt_state_dict(self, restore_dict: dict, print_fn=None):
+        # Add extra input channels for first conv layer of each block
+        fused_feature_channels_list = [self.fused_channels] * 4
+        if print_fn:
+            print_fn(f"Adapting seediness decoder to {fused_feature_channels_list} input channels")
+        names = ['seediness_head.block_32x.0.weight', 'seediness_head.block_16x.0.weight', 'seediness_head.block_8x.0.weight', 'seediness_head.block_4x.0.weight']
+        for name, inter_channels, new_channels in zip(names, self.inter_channels, fused_feature_channels_list):
+            assert inter_channels == restore_dict[name].shape[0], \
+                f"Mismatch in fusion decoder inter channels: expected {inter_channels} but \
+                    got {restore_dict[name].shape[0]} in layer {name}"
+            add_conv_channels_3d(restore_dict, name, self.in_channels, new_channels)

@@ -306,6 +306,7 @@ class TrainingModel(nn.Module):
         Adapt a vanilla STEm-Seg state dict to the current version
         """
         self.backbone.adapt_state_dict(restore_dict, print_fn, 'backbone.')
+        self.seediness_head.adapt_state_dict(restore_dict, print_fn)
 
 
 def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
