@@ -13,6 +13,8 @@ MODEL:
     STEM_IN_CHANNELS: 4 # RGB + positive
   EMBEDDINGS:
     EMBEDDING_SIZE: 4
+  SEEDINESS:
+    HEAD_TYPE: fusion_decoder
 TRAINING:
   MODE: "davis"
   FREEZE_BACKBONE: true

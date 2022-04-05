@@ -1,4 +1,4 @@
-from stemseg.modeling.common import UpsampleTrilinear3D, AtrousPyramid3D, get_pooling_layer_creator, \
+from stemseg.modeling.common import AdaptationError, UpsampleTrilinear3D, AtrousPyramid3D, get_pooling_layer_creator, \
     get_temporal_scales, add_conv_channels_3d
 from stemseg.utils.global_registry import GlobalRegistry
 
@@ -245,4 +245,8 @@ class FusionDecoder(nn.Module):
             assert inter_channels == restore_dict[name].shape[0], \
                 f"Mismatch in fusion decoder inter channels: expected {inter_channels} but \
                     got {restore_dict[name].shape[0]} in layer {name}"
-            add_conv_channels_3d(restore_dict, name, self.in_channels, new_channels)
+            try:
+                add_conv_channels_3d(restore_dict, name, self.in_channels, new_channels)
+            except AdaptationError as error:
+                # it's ok if the channels are already there
+                print(error)

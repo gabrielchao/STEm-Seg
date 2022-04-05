@@ -10,7 +10,7 @@ from stemseg.modeling.backbone.make_layers import conv_with_kaiming_uniform
 from stemseg.modeling.backbone import fpn as fpn_module
 from stemseg.modeling.backbone import resnet
 from stemseg.modeling.backbone.feature_fusion import GuidanceEncoder
-from stemseg.modeling.common import add_conv_channels
+from stemseg.modeling.common import AdaptationError, add_conv_channels
 
 
 def build_resnet_fpn_backbone(cfg):
@@ -27,7 +27,11 @@ def add_stem_in_channels(restore_dict: dict, in_channels: int, prefix=''):
     :param prefix: Prefix to account for before layer names
     """
     # Original shape: (64, 3, 7, 7)
-    add_conv_channels(restore_dict, prefix + 'body.stem.conv1.weight', 3, in_channels)
+    try:
+        add_conv_channels(restore_dict, prefix + 'body.stem.conv1.weight', 3, in_channels)
+    except AdaptationError as error:
+        # it's ok if the channels are already there
+        print(error)
 
 
 class ResnetFPNBackbone(nn.Module):
@@ -150,6 +154,10 @@ class MultiStageFusionBackbone(nn.Module):
             print_fn(f"Adapting FPN to {self.fused_feature_channels_list} channels")
         names = ['fpn.fpn_inner1.weight', 'fpn.fpn_inner2.weight', 'fpn.fpn_inner3.weight', 'fpn.fpn_inner4.weight']
         for name, original_channels, new_channels in zip(names, self.feature_channels_list, self.fused_feature_channels_list):
-            add_conv_channels(restore_dict, prefix + name, original_channels, new_channels)
+            try:
+                add_conv_channels(restore_dict, prefix + name, original_channels, new_channels)
+            except AdaptationError as error:
+                # it's ok if the channels are already there
+                print(error)
 
         return restore_dict
