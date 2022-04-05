@@ -40,11 +40,11 @@ def parse_generic_video_dataset(base_dir, dataset_json):
 class GenericVideoSequence(object):
     def __init__(self, seq_dict, base_dir):
         self.base_dir = base_dir
-        self.image_paths = seq_dict["image_paths"]
+        self.image_paths = seq_dict["image_paths"] # list() (length T)
         self.image_dims = (seq_dict["height"], seq_dict["width"])
         self.id = seq_dict["id"]
 
-        self.segmentations = seq_dict.get("segmentations", None)
+        self.segmentations = seq_dict.get("segmentations", None) # list(dict(int -> str) (length I)) (length T)
         self.instance_categories = seq_dict.get("categories", None)
 
     @property
@@ -59,6 +59,11 @@ class GenericVideoSequence(object):
         return len(self.image_paths)
 
     def load_images(self, frame_idxes=None):
+        """
+        Load images from disk.
+        :param frame_idxes: list()
+        :return list() (length T)
+        """
         if frame_idxes is None:
             frame_idxes = list(range(len(self.image_paths)))
 
@@ -72,6 +77,11 @@ class GenericVideoSequence(object):
         return images
 
     def load_masks(self, frame_idxes=None):
+        """
+        Load masks.
+        :param frame_idxes: list()
+        :return list(list(ndarray) (length I)) (length T)
+        """
         if frame_idxes is None:
             frame_idxes = list(range(len(self.image_paths)))
 

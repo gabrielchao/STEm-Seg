@@ -12,6 +12,9 @@ import torch.nn.functional as F
 
 
 def compute_pixel_box_area_ratio(mask):
+    """
+    Returns (pixel area / bounding box area) for the given mask.
+    """
     y_coords, x_coords = mask.nonzero().unbind(1)
     if y_coords.numel() == 0:
         return 0.0
@@ -26,26 +29,31 @@ def compute_pixel_box_area_ratio(mask):
 
 
 class DavisOutputGenerator(object):
-    def __init__(self, output_dir, outlier_label, save_visualization, *args, **kwargs):
+    def __init__(self, output_dir, outlier_label, save_visualization, save_seediness, *args, **kwargs):
         self.results_output_dir = os.path.join(output_dir, "results")
         self.vis_output_dir = os.path.join(output_dir, "vis")
+        self.seediness_output_dir = os.path.join(output_dir, "seediness")
 
         self.outlier_label = outlier_label
         self.save_visualization = save_visualization
+        self.save_seediness = save_seediness
         self.upscaled_inputs = kwargs.get("upscaled_inputs")
 
     @Timer.exclude_duration("postprocessing")
     def process_sequence(self, sequence, track_mask_idxes, track_mask_labels, instance_pt_counts, instance_lifetimes,
-                         category_masks, mask_dims, mask_scale, max_tracks, device="cpu"):
+                         category_masks, mask_dims, mask_scale, max_tracks, fg_masks, device="cpu"):
         """
         Given a list of mask indices per frame, creates a sequence of masks for the entire sequence.
+        :param sequence: instance of GenericVideoSequence
         :param track_mask_idxes: list(tuple(tensor, tensor))
         :param track_mask_labels: list(tensor)
         :param instance_pt_counts: dict(int -> int)
+        :param instance_lifetimes: 
         :param category_masks: irrelevant
         :param mask_dims: tuple(int, int) (height, width)
         :param mask_scale: int
         :param max_tracks: int
+        :param fg_masks: list(tensor)
         :param device: str
         :return: list(PIL.Image)
         """
@@ -55,6 +63,7 @@ class DavisOutputGenerator(object):
         assert len(track_mask_idxes) == len(track_mask_labels)
         assert max_tracks < 256
 
+        # filter out small/unstable instances
         instances_to_keep = [
                                 instance_id for instance_id, _ in sorted(
                 [(k, v) for k, v in instance_lifetimes.items()], key=lambda x: x[1], reverse=True
@@ -121,15 +130,20 @@ class DavisOutputGenerator(object):
         for t, mask in enumerate(masks):
             mask.save(os.path.join(seq_results_dir, "{:05d}.png".format(t)))
 
-        if not self.save_visualization:
-            return instances_to_keep, dict()
+        if self.save_visualization:
+            seq_vis_dir = os.path.join(self.vis_output_dir, sequence.id)
+            os.makedirs(seq_vis_dir, exist_ok=True)
 
-        seq_vis_dir = os.path.join(self.vis_output_dir, sequence.id)
-        os.makedirs(seq_vis_dir, exist_ok=True)
+            overlayed_images = self.overlay_masks_on_images(sequence, masks)
+            for t, overlayed_image in enumerate(overlayed_images):
+                cv2.imwrite(os.path.join(seq_vis_dir, "{:05d}.jpg".format(t)), overlayed_image)
+        
+        if self.save_seediness:
+            seq_seed_dir = os.path.join(self.seediness_output_dir, sequence.id)
+            os.makedirs(seq_seed_dir, exist_ok=True)
 
-        overlayed_images = self.overlay_masks_on_images(sequence, masks)
-        for t, overlayed_image in enumerate(overlayed_images):
-            cv2.imwrite(os.path.join(seq_vis_dir, "{:05d}.jpg".format(t)), overlayed_image)
+            for t, mask in enumerate(fg_masks):
+                cv2.imwrite(os.path.join(seq_seed_dir, "{:05}.jpg".format(t)), mask.numpy()*255)
 
         return instances_to_keep, dict()
 

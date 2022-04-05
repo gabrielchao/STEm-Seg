@@ -204,6 +204,10 @@ def create_optimizer(model, cfg, print_fn=None):
         optimizer = torch.optim.Adam(
             model.parameters(), cfg.INITIAL_LR, weight_decay=cfg.WEIGHT_DECAY)
         print_fn("Using Adam optimizer with weight decay {}".format(cfg.WEIGHT_DECAY))
+    elif cfg.OPTIMIZER.lower() == "nadam":
+        optimizer = torch.optim.NAdam(
+            model.parameters(), cfg.INITIAL_LR, weight_decay=cfg.WEIGHT_DECAY)
+        print_fn("Using NAdam optimizer with weight decay {}".format(cfg.WEIGHT_DECAY))
     else:
         raise ValueError("Invalid optimizer choice: '{}'".format(cfg.OPTIMIZER))
 
@@ -250,3 +254,12 @@ def create_training_data_loader(dataset, batch_size, shuffle, collate_fn=None, n
                       collate_fn=collate_fn,
                       batch_sampler=batch_sampler,
                       num_workers=num_workers)
+
+
+def create_debug_dataset():
+    return DavisDataLoader(
+        DavisPaths.trainval_base_dir(), DavisPaths.debug_vds_file(),
+        samples_to_create=10000,
+        single_instance_duplication=True,
+        background_as_ignore_region=True
+    )

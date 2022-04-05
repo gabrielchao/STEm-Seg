@@ -76,3 +76,48 @@ class UpsampleTrilinear3D(nn.Module):
 
     def forward(self, x):
         return F.interpolate(x, self.size, self.scale_factor, mode='trilinear', align_corners=self.align_corners)
+
+
+class AdaptationError(ValueError):
+    """
+    Class for errors that occur during state dictionary adaptation.
+    """
+    pass
+
+
+def add_conv_channels(restore_dict: dict, name: str, original_channels: int, new_channels: int):
+    """
+    Add additional input channels to the state dict for the layer with the specified name.
+    :param restore_dict: Model state dict
+    :param name: Name of the layer to be augmented
+    :param original_channels: Original number of input channels for the target layer
+    :param new_channels: New number of input channels for the target layer after augmentation
+    """
+    if restore_dict[name].shape[1] == new_channels:
+        raise AdaptationError(f'State dict already contains {new_channels} channels at layer {name}')
+    assert restore_dict[name].shape[1] == original_channels
+    assert new_channels > original_channels
+    out_channels, original_channels, height, width = restore_dict[name].shape
+    extra_channels = new_channels - original_channels
+    pads = pads = torch.zeros((out_channels, extra_channels, height, width), dtype=restore_dict[name].dtype, device=restore_dict[name].device)
+    nn.init.kaiming_uniform_(pads, a=1)
+    restore_dict[name] = torch.cat([restore_dict[name], pads], 1)
+
+
+def add_conv_channels_3d(restore_dict: dict, name: str, original_channels: int, new_channels: int):
+    """
+    Add additional input channels to the state dict for the 3D conv layer with the specified name.
+    :param restore_dict: Model state dict
+    :param name: Name of the layer to be augmented
+    :param original_channels: Original number of input channels for the target layer
+    :param new_channels: New number of input channels for the target layer after augmentation
+    """
+    if restore_dict[name].shape[1] == new_channels:
+        raise AdaptationError(f'State dict already contains {new_channels} channels at layer {name}')
+    assert restore_dict[name].shape[1] == original_channels
+    assert new_channels > original_channels
+    out_channels, original_channels, height, width, depth = restore_dict[name].shape
+    extra_channels = new_channels - original_channels
+    pads = pads = torch.zeros((out_channels, extra_channels, height, width, depth), dtype=restore_dict[name].dtype, device=restore_dict[name].device)
+    nn.init.kaiming_uniform_(pads, a=1)
+    restore_dict[name] = torch.cat([restore_dict[name], pads], 1)

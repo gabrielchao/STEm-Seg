@@ -1,6 +1,11 @@
 from collections import defaultdict, namedtuple
+from re import L
+
+from stemseg.config import cfg
 from stemseg.data import InferenceImageLoader
 from stemseg.data.inference_image_loader import collate_fn
+from stemseg.data.interactive_inference_loader import InteractiveInferenceLoader, collate_fn as interactive_collate_fn
+from stemseg.data.interactive_video_dataset_parser import InteractiveVideoSequence
 from stemseg.modeling.model_builder import build_model
 from stemseg.utils.timer import Timer
 
@@ -15,7 +20,7 @@ import torch.nn.functional as F
 
 class InferenceModel(nn.Module):
     def __init__(self, restore_path=None, cpu_workers=4, preload_images=False, semseg_output_type="probs",
-                 resize_scale=1.0, semseg_generation_on_gpu=True):
+                 resize_scale=1.0, semseg_generation_on_gpu=True, interaction_multiplier=1.0):
         super().__init__()
 
         with torch.no_grad():
@@ -37,6 +42,7 @@ class InferenceModel(nn.Module):
         self.semseg_output_type = semseg_output_type
         self.resize_scale = resize_scale
         self.semseg_generation_on_gpu = semseg_generation_on_gpu
+        self.interaction_multiplier = interaction_multiplier
 
         self.eval()
 
@@ -61,26 +67,44 @@ class InferenceModel(nn.Module):
             return x
 
     @torch.no_grad()
-    def forward(self, image_paths, subseq_idxes):
+    def forward(self, image_paths, subseq_idxes, interactive_sequence:InteractiveVideoSequence=None):
         """
         Initialize a new sequence of images (arbitrary length)
         :param image_paths: list of file paths to the images
         :param subseq_idxes: list of tuples containing frame indices of the sub-sequences
+        :param interactive_sequence: InteractiveVideoSequence. Passing this causes image_paths to be ignored.
+        :return dict('fg_masks' -> tensor(T, C, H, W), 
+                     'multiclass_masks' -> tensor(T, C, H, W), 
+                     'embeddings' -> list(namedtuple(
+                         'subseq_frames' -> list(int), 
+                         'embeddings' -> tensor, 
+                         'bandwidths' -> tensor, 
+                         'seediness' -> tensor)))
         """
 
-        # create an image loader
-        if self.preload_images:
-            image_loader = InferenceImageLoader(self.load_images(image_paths))
+        if interactive_sequence:
+            image_loader = InteractiveInferenceLoader(interactive_sequence)
+            if self.preload_images:
+                image_loader.preload()
+            
+            image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=interactive_collate_fn,
+                                    drop_last=False)
         else:
-            image_loader = InferenceImageLoader(image_paths)
+            # create an image loader
+            if self.preload_images:
+                image_loader = InferenceImageLoader(self.load_images(image_paths))
+            else:
+                image_loader = InferenceImageLoader(image_paths)
 
-        image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=collate_fn,
-                                  drop_last=False)
+            image_loader = DataLoader(image_loader, 1, False, num_workers=self.cpu_workers, collate_fn=collate_fn,
+                                    drop_last=False)
 
         semseg_logits = [[0., 0] for _ in range(len(image_paths))]
         embeddings_maps = []
 
+        interaction_store = dict() # dict(int -> tensor(1, 1, 2, H, W))
         backbone_features = dict()
+        guidance_features = dict() # only produced by multi-fusion backbone and used by fusion seediness decoder
         current_subseq_idx = 0
 
         # to avoid recomputing features for the same frame again and again, we construct a dict to store the subseq
@@ -96,10 +120,25 @@ class InferenceModel(nn.Module):
         current_subseq = {t: False for t in subseq_idxes[0]}
         current_subseq_as_list = subseq_idxes[0]
 
-        for images, idxes in tqdm(image_loader, total=len(image_loader)):
+        for data in tqdm(image_loader, total=len(image_loader)):
+            if interactive_sequence:
+                images, interactions, idxes = data
+                if cfg.MODEL.RESNETS.STEM_IN_CHANNELS == 4:
+                    interactions = interactions[:, :, 0:1, :, :] # Remove negative channel
+            else:
+                images, idxes = data
+
             assert len(idxes) == 1
             frame_id = idxes[0]
-            backbone_features[frame_id] = self._model.run_backbone(images.cuda())
+
+            if interactive_sequence:
+                results = self._model.run_backbone(images.cuda(), interactions.cuda())
+                backbone_features[frame_id] = results['features']
+                interaction_store[frame_id] = interactions
+                if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+                    guidance_features[frame_id] = results['guidance']
+            else:
+                backbone_features[frame_id] = self._model.run_backbone(images.cuda())['features']
 
             if frame_id in current_subseq:
                 current_subseq[frame_id] = True
@@ -110,6 +149,7 @@ class InferenceModel(nn.Module):
             # required feature maps have been generated. Stack the feature maps and run semseg, embedding and seediness
             # heads
             stacked_features = defaultdict(list)
+
             for t in current_subseq_as_list:
                 for scale, feature_map in backbone_features[t].items():
                     stacked_features[scale].append(feature_map)
@@ -118,13 +158,25 @@ class InferenceModel(nn.Module):
                 scale: torch.stack(stacked_features[scale], 2) for scale in stacked_features
             }  # dict(tensor(1, C, T, H, W))
 
+            # likewise, perform stacking for guidance if applicable
+            stacked_guidance = defaultdict(list)
+
+            if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+                for t in current_subseq_as_list:
+                    for scale, guidance_map in guidance_features[t].items():
+                        stacked_guidance[scale].append(guidance_map)
+                
+                stacked_guidance = {
+                    scale: torch.stack(stacked_guidance[scale], 2) for scale in stacked_guidance
+                }
+
             if self.has_semseg_head:
                 semseg_input_features = [stacked_features[scale] for scale in self._model.semseg_feature_map_scale]
-                subseq_semseg_logits = self._model.semseg_head(semseg_input_features)
-                subseq_semseg_logits = self.resize_output(subseq_semseg_logits).permute(2, 0, 1, 3, 4).cpu()
+                subseq_semseg_logits = self._model.semseg_head(semseg_input_features)  # [N, C, T, H, W]
+                subseq_semseg_logits = self.resize_output(subseq_semseg_logits).permute(2, 0, 1, 3, 4).cpu()  # [T, N, C, H, W]
 
                 for i, t in enumerate(current_subseq_as_list):
-                    semseg_logits[t][0] += subseq_semseg_logits[i]
+                    semseg_logits[t][0] += subseq_semseg_logits[i] # [N, C, H, W]
                     semseg_logits[t][1] += 1
 
             embedding_input_features = [stacked_features[scale] for scale in self._model.embedding_head_feature_map_scale]
@@ -152,11 +204,31 @@ class InferenceModel(nn.Module):
                 seediness_input_features = [
                     stacked_features[scale] for scale in self._model.seediness_head_feature_map_scale
                 ]
-                subseq_seediness = self._model.seediness_head(seediness_input_features)
+
+                if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+                    assert cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION'
+                    seediness_input_guidance = [
+                        stacked_guidance[scale] for scale in self._model.seediness_head_feature_map_scale
+                    ]
+                    subseq_seediness = self._model.seediness_head(seediness_input_features, seediness_input_guidance)
+                else:
+                    subseq_seediness = self._model.seediness_head(seediness_input_features)
+
                 subseq_seediness = self.resize_output(subseq_seediness).squeeze(0)
 
                 subseq_seediness_dict = {t: subseq_seediness[:, i] for i, t in enumerate(current_subseq_as_list)}
                 subseq_seediness = torch.stack([subseq_seediness_dict[t] for t in sorted(current_subseq.keys())], 1)
+            
+            # give interactions more weight in deciding seediness
+            if interactive_sequence:
+                subseq_interactions = [interaction_store[frame_id] for frame_id in current_subseq_as_list] # list(tensor(1, 1, 2, H, W)) (length T)
+                subseq_interactions = torch.cat(subseq_interactions, dim=1) # tensor(1, T, 2, H, W)
+                subseq_interactions = subseq_interactions.permute(0, 2, 1, 3, 4) # tensor(1, 2, T, H, W)
+                subseq_interactions = F.interpolate(
+                    subseq_interactions, scale_factor=(1.0, 0.25, 0.25), 
+                    mode='trilinear', align_corners=False)
+                subseq_interactions = subseq_interactions.permute(0, 2, 1, 3, 4) # tensor(1, T, 2, H, W)
+                subseq_seediness = subseq_seediness * (self.interaction_multiplier * subseq_interactions[:, :, 0, :, :].cuda() + 1) # tensor(1, T, H, W)
 
             embeddings_maps.append(self.EmbeddingMapEntry(
                 sorted(current_subseq.keys()), subseq_embeddings.cpu(), subseq_bandwidths.cpu(), subseq_seediness.cpu()))

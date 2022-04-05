@@ -31,6 +31,7 @@ class Loss(object):
 class ModelOutput(object):
     TRACKER_INPUT_FEATURES = "tracker_input_features",
     SEMSEG_MASKS = "semseg_masks",
+    MASKS = "masks"
     EMBEDDINGS = "embeddings",
     EMBEDDING_VARIANCES = "variances"
     SEEDINESS_MAP = "seediness_map"

@@ -58,6 +58,10 @@ class DavisUnsupervisedPaths(object):
     def val_vds_file():
         return os.path.join(_get_env_var('STEMSEG_JSON_ANNOTATIONS_DIR'), 'davis_val.json')
 
+    @staticmethod
+    def debug_vds_file():
+        return os.path.join(_get_env_var('STEMSEG_JSON_ANNOTATIONS_DIR'), 'davis_debug.json')
+
 
 class KITTIMOTSPaths(object):
     def __init__(self):

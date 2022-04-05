@@ -79,14 +79,20 @@ Assuming the relevant dataset environment variables are correctly set, just run 
     ```bash
     python stemseg/inference/main.py /path/to/downloaded/checkpoints/davis.pth -o /path/to/output_dir --dataset davis
     ```
+
+2. DAVIS-Interactive:
+   
+   ```bash
+   python stemseg/inference/main_interactive.py /path/to/trained/checkpoint/davis_interactive.pth -o /path/to/output_dir --dataset davis_interactive --guidance_dir /path/to/datasets/DAVIS/CustomGuidance/480p --save_vis
+   ```
     
-2. YouTube-VIS:
+3. YouTube-VIS:
 
     ```bash
     python stemseg/inference/main.py /path/to/downloaded/checkpoints/youtube_vis.pth -o /path/to/output_dir --dataset ytvis --resize_embeddings
     ```
     
-3. KITTI-MOTS:
+4. KITTI-MOTS:
 
     ```bash
     python stemseg/inference/main.py /path/to/downloaded/checkpoints/kitti_mots.pth -o /path/to/output_dir --dataset kittimots --max_dim 1948
@@ -158,7 +164,6 @@ Here as well, the final inference was done on 8 frame clips, but we trained in t
   ```bash
   python -m torch.distributed.launch --nproc_per_node=<num_gpus> stemseg/training/main.py --model_dir some_dir_name --cfg <dataset_config.yaml> --allow_multigpu
   ```
-  The displayed ETA may not be completely accurate (might not account for work done by multiple GPUs), but it should decrease in proportion to the actual work done.
   
 * To control which GPU(s) to utilize, set the `CUDA_VISIBLE_DEVICES` environmental variable before running. For example:
   
@@ -176,6 +181,16 @@ Here as well, the final inference was done on 8 frame clips, but we trained in t
 * We fix all random seeds prior to training, but the results reported in the paper may not be exactly reproducible when you train the model on your own. 
 
 * Run `python stemseg/training/main.py --help` for the full list of options.
+
+## Evaluation
+
+There is a script for calculating mean Intersection over Union (mIOU) scores at the sequence and dataset level:
+
+```bash
+python stemseg/inference/evaluate.py /path/to/results --dataset davis --output_dir /path/to/output/dir
+```
+
+This creates a JSON file containing the overall mIOU as well as sequence-by-sequence mIOUs - if `--output_dir` is not specified, it will be created in the results directory. Currently only evaluation of DAVIS dataset results is supported. 
 
 ## Implementing Other Datasets
 

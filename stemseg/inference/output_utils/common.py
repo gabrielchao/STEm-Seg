@@ -5,6 +5,9 @@ import numpy as np
 
 
 def bbox_from_mask(mask):
+    """
+    Returns a bounding box in (x_min, y_min, x_max, y_max) format computed from the given mask.
+    """
     reduced_y = np.any(mask, axis=0)
     reduced_x = np.any(mask, axis=1)
 
@@ -22,6 +25,7 @@ def bbox_from_mask(mask):
 
 def annotate_instance(image, mask, color, text_label, font_size=0.5, draw_bbox=True):
     """
+    Returns the image visually annotated with the given mask and label, and the associated bounding box if applicable.
     :param image: np.ndarray(H, W, 3)
     :param mask: np.ndarray(H, W)
     :param color: tuple/list(int, int, int) in range [0, 255]

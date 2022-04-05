@@ -209,6 +209,21 @@ def instance_masks_to_semseg_mask(instance_masks, category_labels):
     # for pixels with differing labels, assign to the category with higher ID number (arbitrary criterion)
     return semseg_masks.max(dim=0)[0]  # [T, H, W]
 
+@torch.no_grad()
+def semseg_mask_to_instance_masks(semseg_mask):
+    """
+    Converts a tensor containing a semantic segmentation mask to a tensor containing instance masks.
+    :param semseg_mask: tensor(T, H, W)
+    :return: instance masks as I-length list(tensor(T, H, W))
+    """
+    category_labels = set(np.unique(semseg_mask).tolist()) - {0}
+    instance_masks = []
+    for i, label in enumerate(category_labels):
+        mask = torch.where(semseg_mask == label, 1, 0).to(semseg_mask.device)
+        instance_masks.append(mask)
+    
+    return instance_masks
+
 
 def visualize_semseg_masks(image, semseg_mask):
     category_labels = set(np.unique(semseg_mask).tolist()) - {0}

@@ -98,14 +98,27 @@ class TrainingModel(nn.Module):
             x = x.permute(0, 2, 1, 3, 4)
         return x
 
-    def forward(self, image_seqs, targets):
+    def forward(self, image_seqs, targets, interaction_seqs=None):
+        """
+        :param image_seqs: ImageList
+        :param targets: dict
+        :param interaction_seqs: tensor(N, T, 2, H, W)
+        """
         targets = self.resize_masks(targets)
 
         num_seqs = image_seqs.num_seqs
         num_frames = image_seqs.num_frames
-        features = self.run_backbone(image_seqs)
+        backbone_output = self.run_backbone(image_seqs, interaction_seqs)
+        features = backbone_output['features']
 
-        embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames)
+        if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+            assert cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION', \
+                "Seediness head type is fusion decoder, but backbone type is not multi-fusion. \
+                The two must be used together."
+            guidance = backbone_output['guidance']
+            embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames, guidance=guidance)
+        else:
+            embeddings_map, semseg_logits = self.forward_embeddings_and_semseg(features, num_seqs, num_frames)
 
         output = {
             ModelOutput.INFERENCE: {
@@ -151,24 +164,43 @@ class TrainingModel(nn.Module):
 
         return targets
 
-    def run_backbone(self, image_seqs):
+    def run_backbone(self, image_seqs, interaction_seqs=None):
         """
         Computes backbone features for a set of image sequences.
         :param image_seqs: Instance of ImageList
-        :return: A dictionary of feature maps with keys denoting the scale.
+        :param interaction_seqs: tensor(N, T, 2, H, W)
+        :return: A results dictionary. {
+            'features': A dictionary of feature maps with keys denoting the scale.
+            'guidance': Only present in the multi-fusion backbone. A dictionary of guidance maps with keys denoting the scale.
+        }
         """
         height, width = image_seqs.tensors.shape[-2:]
-        images_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
+
+        if interaction_seqs is not None:
+            full_channels = image_seqs.tensors.shape[2] + interaction_seqs.shape[2]
+            assert cfg.MODEL.RESNETS.STEM_IN_CHANNELS == full_channels, \
+                f"Expected {cfg.MODEL.RESNETS.STEM_IN_CHANNELS} input channels but got {full_channels}"
+            # Concat RGB and guidance maps along the channels dimension
+            full_tensor = torch.cat([image_seqs.tensors, interaction_seqs], dim=2)
+            # View video frames as the 'batch' dimension
+            full_tensor = full_tensor.view(image_seqs.num_seqs * image_seqs.num_frames, full_channels, height, width)
+        else:
+            full_tensor = image_seqs.tensors.view(image_seqs.num_seqs * image_seqs.num_frames, 3, height, width)
 
         if cfg.TRAINING.FREEZE_BACKBONE:
             with torch.no_grad():
-                features = self.backbone(images_tensor)
+                results = self.backbone(full_tensor)
         else:
-            features = self.backbone(images_tensor)
+            results = self.backbone(full_tensor)
+        
+        # Package results into OrderedDict
+        results['features'] = OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, results['features'])])
+        if cfg.MODEL.BACKBONE.TYPE == 'MULTI-FUSION':
+            results['guidance'] = OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, results['guidance'])])
 
-        return OrderedDict([(k, v) for k, v in zip(self.feature_map_scales, features)])
+        return results
 
-    def forward_embeddings_and_semseg(self, features, num_seqs, num_frames):
+    def forward_embeddings_and_semseg(self, features, num_seqs, num_frames, **kwargs):
         if self.semseg_head is None:
             semseg_logits = None
         else:
@@ -190,7 +222,15 @@ class TrainingModel(nn.Module):
                 self.restore_temporal_dimension(features[scale], num_seqs, num_frames, "NCTHW")
                 for scale in self.seediness_head_feature_map_scale
             ]
-            seediness_map = self.seediness_head(seediness_input_features)
+            if cfg.MODEL.SEEDINESS.HEAD_TYPE == 'fusion_decoder':
+                guidance = kwargs['guidance']
+                seediness_input_guidance = [
+                    self.restore_temporal_dimension(guidance[scale], num_seqs, num_frames, "NCTHW")
+                    for scale in self.seediness_head_feature_map_scale
+                ]
+                seediness_map = self.seediness_head(seediness_input_features, seediness_input_guidance)
+            else:    
+                seediness_map = self.seediness_head(seediness_input_features)
 
             embeddings_map = torch.cat((embeddings_map, seediness_map), dim=1)
 
@@ -243,8 +283,33 @@ class TrainingModel(nn.Module):
 
         output_dict[ModelOutput.OPTIMIZATION_LOSSES][LossConsts.FOREGROUND] = loss / len(targets)
 
+    def split_embeddings(self, embedding_map):
+        """
+        Splits a consolidated embedding map into separate embedding, bandwidth, and seediness maps.
+        :param embedding_map: Tensor of shape [N, C, T, H, W] (C = embedding dims + variance dims + seediness dims)
+        :return (embedding_map, bandwidth_map, seediness_map) each of shape [N, T, H, W, x] where x is the respective dim
+        """
+        assert embedding_map.shape[1] == self.embedding_loss_criterion.num_input_channels, "Expected {} channels in input tensor, got {}".format(
+            self.embedding_loss_criterion.num_input_channels, embedding_map.shape[1])
 
-def build_model(restore_pretrained_backbone_wts=False, logger=None):
+        embedding_map = embedding_map.permute(0, 2, 3, 4, 1)  # [N, T, H, W, C]
+
+        embedding_map, bandwidth_map, seediness_map = embedding_map.split(self.embedding_loss_criterion.split_sizes, dim=-1)
+        assert bandwidth_map.shape[-1] + self.embedding_loss_criterion.n_free_dims == embedding_map.shape[-1], \
+            "Number of predicted bandwidth dims {} + number of free dims {} should equal number of total embedding " \
+            "dims {}".format(bandwidth_map.shape[-1], self.embedding_loss_criterion.n_free_dims, embedding_map.shape[-1])
+
+        return embedding_map, bandwidth_map, seediness_map
+
+    def adapt_state_dict(self, restore_dict, print_fn=None):
+        """
+        Adapt a vanilla STEm-Seg state dict to the current version
+        """
+        self.backbone.adapt_state_dict(restore_dict, print_fn, 'backbone.')
+        self.seediness_head.adapt_state_dict(restore_dict, print_fn)
+
+
+def build_model(restore_pretrained_backbone_wts=False, logger=None) -> TrainingModel:
     print_fn = logger.info if logger is not None else print
 
     # manually seed the random number generator so that all weights get initialized to the same values when using
@@ -258,7 +323,8 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None):
 
     info_to_print = [
         "Backbone type: {}".format(cfg.MODEL.BACKBONE.TYPE),
-        "Backbone frozen: {}".format("Yes" if cfg.TRAINING.FREEZE_BACKBONE else "No")
+        "Backbone frozen: {}".format("Yes" if cfg.TRAINING.FREEZE_BACKBONE else "No"),
+        "Backbone input channels: {}".format(cfg.MODEL.RESNETS.STEM_IN_CHANNELS)
     ]
 
     # restore pre-trained weights if possible.
@@ -267,7 +333,8 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None):
         print_fn("Restoring backbone weights from '{}'".format(pretrained_wts_file))
         if os.path.exists(pretrained_wts_file):
             restore_dict = torch.load(pretrained_wts_file)
-            backbone.load_state_dict(restore_dict, strict=True)
+            backbone.adapt_state_dict(restore_dict, print_fn) # Add guidance map / FPN channels
+            backbone.load_state_dict(restore_dict, strict=False) # strict off to allow for new GuidanceEncoder module
         else:
             raise ValueError("Could not find pre-trained backbone weights file at expected location: '{}'".format(
                 pretrained_wts_file))
@@ -309,6 +376,7 @@ def build_model(restore_pretrained_backbone_wts=False, logger=None):
         SeedinessHeadType = SEEDINESS_HEAD_REGISTRY[cfg.MODEL.SEEDINESS.HEAD_TYPE]
         seediness_head = SeedinessHeadType(
             backbone.out_channels, cfg.MODEL.SEEDINESS.INTER_CHANNELS,
+            guidance_channels=cfg.MODEL.FUSION.GUIDANCE_INTER_CHANNELS, # only used by FusionDecoder
             PoolType=POOLER_REGISTRY[cfg.MODEL.SEEDINESS.POOL_TYPE],
             NormType=NORM_REGISTRY[cfg.MODEL.SEEDINESS.NORMALIZATION_LAYER](cfg.MODEL.SEEDINESS.GN_NUM_GROUPS)
         )
